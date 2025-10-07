@@ -1,0 +1,1339 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>EDM Neural Voice Generator</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <style>
+        :root {
+            --primary: #3498db;
+            --success: #27ae60;
+            --warning: #f39c12;
+            --danger: #e74c3c;
+            --dark: #2c3e50;
+            --light: #ecf0f1;
+            --border: #bdc3c7;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+            max-width: 1000px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+            background: #f8f9fa;
+            color: var(--dark);
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        h1 {
+            color: var(--primary);
+            margin-bottom: 0.5rem;
+        }
+
+        .subtitle {
+            color: #6c757d;
+            font-size: 1.1rem;
+        }
+
+        .section {
+            background: white;
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .section-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: var(--dark);
+            border-bottom: 2px solid var(--light);
+            padding-bottom: 0.5rem;
+        }
+
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        .form-row {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+            align-items: end;
+        }
+
+        .form-col {
+            flex: 1;
+            min-width: 200px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+            color: var(--dark);
+        }
+
+        input, select, textarea {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 1rem;
+            transition: border-color 0.3s;
+        }
+
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+
+        input[type="range"] {
+            height: 6px;
+            background: var(--light);
+            border-radius: 3px;
+            padding: 0;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: var(--primary);
+            cursor: pointer;
+        }
+
+        input[type="checkbox"] {
+            width: auto;
+            margin-right: 0.5rem;
+        }
+
+        .range-label {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.25rem;
+        }
+
+        .range-value {
+            font-weight: 600;
+            color: var(--primary);
+            min-width: 60px;
+            text-align: right;
+        }
+
+        button {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 6px;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        button:hover {
+            background: #2980b9;
+            transform: translateY(-1px);
+        }
+
+        button:disabled {
+            background: var(--border);
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .status {
+            padding: 1rem;
+            border-radius: 6px;
+            margin: 1rem 0;
+            font-weight: 500;
+        }
+
+        .status.idle {
+            background: var(--light);
+            color: var(--dark);
+        }
+
+        .status.processing {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .file-upload {
+            border: 2px dashed var(--border);
+            border-radius: 8px;
+            padding: 2rem;
+            text-align: center;
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+
+        .file-upload:hover {
+            border-color: var(--primary);
+            background: rgba(52, 152, 219, 0.05);
+        }
+
+        .audio-player {
+            width: 100%;
+            margin-top: 1rem;
+        }
+
+        .preset-buttons {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            margin-bottom: 1rem;
+        }
+
+        .preset-btn {
+            background: var(--light);
+            color: var(--dark);
+            border: 1px solid var(--border);
+            padding: 0.5rem 1rem;
+            font-size: 0.9rem;
+            cursor: pointer;
+        }
+
+        .preset-btn:hover {
+            background: var(--border);
+        }
+
+        .preset-btn.active {
+            background: var(--primary);
+            color: white;
+        }
+
+        .bpm-sync {
+            background: #e8f5e8;
+            border: 1px solid #c3e6c3;
+            border-radius: 6px;
+            padding: 1rem;
+            margin-top: 1rem;
+        }
+
+        .toggle-section {
+            display: flex;
+            gap: 2rem;
+            flex-wrap: wrap;
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🎵 EDM Neural Voice Generator</h1>
+        <p class="subtitle">Neural voice cloning with BPM-aware processing for electronic music</p>
+    </div>
+
+    <!-- Reference Voice Upload -->
+    <div class="section">
+        <h2 class="section-title">🎙️ Reference Voice</h2>
+        <div class="file-upload" id="referenceUpload">
+            <p>📁 <strong>Drag & drop</strong> a reference voice file here, or <strong>click to browse</strong></p>
+            <p style="margin-top: 0.5rem; color: #6c757d; font-size: 0.9rem;">
+                Supported: MP3, WAV, M4A (10s-60s recommended)
+            </p>
+            <input type="file" id="referenceFile" accept="audio/*" style="display: none;">
+        </div>
+        <div id="referenceStatus" class="status hidden"></div>
+        <audio id="referencePlayer" class="audio-player hidden" controls></audio>
+    </div>
+
+    <!-- Text Input -->
+    <div class="section">
+        <h2 class="section-title">📝 Text to Synthesize</h2>
+        <div class="form-group">
+            <label for="textInput">Enter the text you want to synthesize:</label>
+            <textarea id="textInput" placeholder="e.g., 'Turn up the energy tonight!' or 'Feel the bass drop now!'">Turn up the energy tonight!</textarea>
+        </div>
+    </div>
+
+    <!-- Voice Cloning Settings -->
+    <div class="section">
+        <h2 class="section-title">🎛️ Neural Voice Settings</h2>
+        <div class="form-row">
+            <div class="form-col">
+                <label for="quality">Quality Mode:</label>
+                <select id="quality">
+                    <option value="fast">Fast (preview)</option>
+                    <option value="balanced" selected>Balanced</option>
+                    <option value="high">High Quality</option>
+                </select>
+            </div>
+            <div class="form-col">
+                <div class="range-label">
+                    <label for="similarity">Voice Similarity:</label>
+                    <span class="range-value" id="similarityValue">0.8</span>
+                </div>
+                <input type="range" id="similarity" min="0.1" max="1.0" step="0.1" value="0.8">
+            </div>
+            <div class="form-col">
+                <div class="range-label">
+                    <label for="diversity">Voice Diversity:</label>
+                    <span class="range-value" id="diversityValue">0.2</span>
+                </div>
+                <input type="range" id="diversity" min="0.0" max="1.0" step="0.1" value="0.2">
+            </div>
+        </div>
+    </div>
+
+    <!-- BPM & EDM Settings -->
+    <div class="section">
+        <h2 class="section-title">🎵 EDM & BPM Settings</h2>
+        
+        <!-- BPM Presets -->
+        <div class="form-group">
+            <label>Quick BPM Presets:</label>
+            <div class="preset-buttons">
+                <button type="button" class="preset-btn" data-bpm="120">House (120)</button>
+                <button type="button" class="preset-btn" data-bpm="128">EDM (128)</button>
+                <button type="button" class="preset-btn" data-bpm="130">Techno (130)</button>
+                <button type="button" class="preset-btn" data-bpm="138">Trance (138)</button>
+                <button type="button" class="preset-btn" data-bpm="140">Dubstep (140)</button>
+                <button type="button" class="preset-btn" data-bpm="174">D&B (174)</button>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-col">
+                <div class="range-label">
+                    <label for="bpm">BPM (Beats Per Minute):</label>
+                    <span class="range-value" id="bpmValue">128</span>
+                </div>
+                <input type="range" id="bpm" min="60" max="200" step="1" value="128">
+            </div>
+        </div>
+
+        <div class="bpm-sync">
+            <h4 style="margin-top: 0;">🎯 Musical Timing</h4>
+            <div class="toggle-section">
+                <label><input type="checkbox" id="syncToBeat"> Sync to Beat Grid</label>
+                <label><input type="checkbox" id="quantizeTiming"> Quantize Timing</label>
+            </div>
+            <p style="margin-bottom: 0; font-size: 0.9rem; color: #6c757d;">
+                Sync to Beat: Aligns vocal length to musical measures<br>
+                Quantize: Snaps vocal timing to 16th note grid
+            </p>
+        </div>
+    </div>
+
+    <!-- Audio Effects -->
+    <div class="section">
+        <h2 class="section-title">🎚️ Audio Effects</h2>
+        
+        <!-- Reverb -->
+        <div class="form-group">
+            <label><input type="checkbox" id="addReverb"> Add Reverb</label>
+            <div class="form-row" style="margin-top: 0.5rem;">
+                <div class="form-col">
+                    <div class="range-label">
+                        <label for="reverbAmount">Reverb Amount:</label>
+                        <span class="range-value" id="reverbAmountValue">0.3</span>
+                    </div>
+                    <input type="range" id="reverbAmount" min="0.0" max="1.0" step="0.1" value="0.3">
+                </div>
+            </div>
+        </div>
+
+        <!-- Delay -->
+        <div class="form-group">
+            <label><input type="checkbox" id="addDelay"> Add Delay</label>
+            <div class="form-row" style="margin-top: 0.5rem;">
+                <div class="form-col">
+                    <div class="range-label">
+                        <label for="delayTime">Delay Time (seconds):</label>
+                        <span class="range-value" id="delayTimeValue">0.125</span>
+                    </div>
+                    <input type="range" id="delayTime" min="0.05" max="0.5" step="0.025" value="0.125">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Generation Controls -->
+    <div class="section">
+        <h2 class="section-title">🚀 Generate</h2>
+        <div style="text-align: center;">
+            <button id="generateBtn" style="font-size: 1.1rem; padding: 1rem 2rem;">
+                🎵 Generate Neural Vocal
+            </button>
+        </div>
+        <div id="status" class="status idle">Ready to generate neural vocals</div>
+        <audio id="resultPlayer" class="audio-player hidden" controls></audio>
+    </div>
+
+    <script>
+        // State management
+        const state = {
+            referenceId: null,
+            isGenerating: false
+        };
+
+        // DOM elements
+        const referenceUpload = document.getElementById('referenceUpload');
+        const referenceFile = document.getElementById('referenceFile');
+        const referenceStatus = document.getElementById('referenceStatus');
+        const referencePlayer = document.getElementById('referencePlayer');
+        const generateBtn = document.getElementById('generateBtn');
+        const status = document.getElementById('status');
+        const resultPlayer = document.getElementById('resultPlayer');
+
+        // Range inputs with live updates
+        const ranges = ['similarity', 'diversity', 'bpm', 'reverbAmount', 'delayTime'];
+        ranges.forEach(id => {
+            const input = document.getElementById(id);
+            const display = document.getElementById(id + 'Value');
+            input.addEventListener('input', () => {
+                display.textContent = input.value;
+            });
+        });
+
+        // BPM preset buttons
+        document.querySelectorAll('.preset-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const bpm = btn.dataset.bpm;
+                document.getElementById('bpm').value = bpm;
+                document.getElementById('bpmValue').textContent = bpm;
+                
+                // Update active state
+                document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+            });
+        });
+
+        // File upload handling
+        referenceUpload.addEventListener('click', () => referenceFile.click());
+        referenceUpload.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            referenceUpload.style.borderColor = 'var(--primary)';
+        });
+        referenceUpload.addEventListener('drop', (e) => {
+            e.preventDefault();
+            referenceUpload.style.borderColor = 'var(--border)';
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                uploadReferenceAudio(files[0]);
+            }
+        });
+        referenceFile.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                uploadReferenceAudio(file);
+            }
+        });
+
+        // Upload reference audio
+        async function uploadReferenceAudio(file) {
+            showStatus('processing', 'Uploading reference audio...');
+            
+            try {
+                const formData = new FormData();
+                formData.append('file', file);
+                
+                const response = await fetch('/api/upload_audio', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Upload failed: ${response.statusText}`);
+                }
+                
+                const result = await response.json();
+                state.referenceId = result.id;
+                
+                // Show success and play uploaded audio
+                showStatus('success', `Reference uploaded: ${file.name}`);
+                referencePlayer.src = `/api/get_audio/${result.id}`;
+                referencePlayer.classList.remove('hidden');
+                
+                // Enable generation
+                updateGenerateButton();
+                
+            } catch (error) {
+                console.error('Upload error:', error);
+                showStatus('error', `Upload failed: ${error.message}`);
+            }
+        }
+
+        // Generate neural vocal
+        async function generateVocal() {
+            if (!state.referenceId || state.isGenerating) return;
+            
+            state.isGenerating = true;
+            updateGenerateButton();
+            showStatus('processing', 'Generating neural vocal with BPM processing...');
+            
+            try {
+                const request = {
+                    reference_id: state.referenceId,
+                    text: document.getElementById('textInput').value,
+                    quality: document.getElementById('quality').value,
+                    similarity_boost: parseFloat(document.getElementById('similarity').value),
+                    diversity: parseFloat(document.getElementById('diversity').value),
+                    
+                    // BPM settings
+                    bpm: parseInt(document.getElementById('bpm').value),
+                    sync_to_beat: document.getElementById('syncToBeat').checked,
+                    quantize_timing: document.getElementById('quantizeTiming').checked,
+                    
+                    // Effects
+                    add_reverb: document.getElementById('addReverb').checked,
+                    reverb_amount: parseFloat(document.getElementById('reverbAmount').value),
+                    add_delay: document.getElementById('addDelay').checked,
+                    delay_time: parseFloat(document.getElementById('delayTime').value)
+                };
+                
+                const response = await fetch('/api/clone_voice', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(request)
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Generation failed: ${response.statusText}`);
+                }
+                
+                // Handle audio response
+                const blob = await response.blob();
+                const audioUrl = URL.createObjectURL(blob);
+                
+                resultPlayer.src = audioUrl;
+                resultPlayer.classList.remove('hidden');
+                
+                showStatus('success', '🎉 Neural vocal generated successfully!');
+                
+            } catch (error) {
+                console.error('Generation error:', error);
+                showStatus('error', `Generation failed: ${error.message}`);
+            } finally {
+                state.isGenerating = false;
+                updateGenerateButton();
+            }
+        }
+
+        // UI helpers
+        function showStatus(type, message) {
+            status.className = `status ${type}`;
+            status.innerHTML = type === 'processing' ? 
+                `<span class="spinner"></span> ${message}` : message;
+        }
+
+        function updateGenerateButton() {
+            const canGenerate = state.referenceId && !state.isGenerating;
+            generateBtn.disabled = !canGenerate;
+            generateBtn.textContent = state.isGenerating ? 
+                '🔄 Generating...' : '🎵 Generate Neural Vocal';
+        }
+
+        // Event listeners
+        generateBtn.addEventListener('click', generateVocal);
+
+        // Initialize
+        updateGenerateButton();
+    </script>
+</body>
+</html>
+            padding: .3rem .6rem;
+            border-radius: 999px;
+            font-size: .8rem;
+            border: 1px solid #e0e0e0;
+            background: #fafafa;
+            transition: all .3s;
+        }
+
+        .actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .panel {
+            border: 1px solid #eee;
+            border-radius: 12px;
+            padding: var(--pad);
+            margin-top: 12px;
+            background: #fcfcfc;
+        }
+
+        .performance-section {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 1rem;
+            margin: 1rem 0;
+        }
+
+        .performance-title {
+            font-weight: 600;
+            margin-bottom: .5rem;
+            color: #495057;
+        }
+
+        .progress-container {
+            display: none;
+            margin: .5rem 0;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 6px;
+            background: #e0e0e0;
+            border-radius: 3px;
+            overflow: hidden;
+            margin: .3rem 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg,#4CAF50,#45a049);
+            border-radius: 3px;
+            transition: width .3s ease;
+            width: 0%;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #3498db;
+            border-radius: 50%;
+            animation: spin .8s linear infinite;
+            margin-right: 6px;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0)
+            }
+
+            100% {
+                transform: rotate(360deg)
+            }
+        }
+
+        /* Humanization / Reference */
+        .humanization-section {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 1rem;
+            margin: 1rem 0;
+        }
+
+        .humanization-title {
+            font-weight: 600;
+            margin-bottom: .5rem;
+            color: #495057;
+        }
+
+        .reference-status {
+            display: inline-block;
+            padding: .2rem .5rem;
+            border-radius: 4px;
+            font-size: .85rem;
+            margin-left: 10px;
+        }
+
+        .reference-loaded {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .reference-analyzing {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .reference-error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .file-input-wrapper {
+            position: relative;
+            overflow: hidden;
+            display: inline-block;
+            min-width: 250px;
+        }
+
+            .file-input-wrapper input[type=file] {
+                position: absolute;
+                left: -9999px;
+            }
+
+        .file-input-label {
+            padding: .75rem 1rem;
+            background: #fff;
+            border: 2px dashed #dee2e6;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all .2s;
+            display: block;
+            text-align: center;
+            min-height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+            .file-input-label:hover {
+                background: #f8f9fa;
+                border-color: #007bff;
+                color: #007bff;
+            }
+
+            .file-input-label.drag-over {
+                background: #e3f2fd;
+                border-color: #2196f3;
+                color: #1976d2;
+                transform: scale(1.02);
+            }
+
+            .file-input-label.processing {
+                background: #fff3cd;
+                border-color: #ffc107;
+                color: #856404;
+            }
+
+        .reference-info {
+            margin-top: .5rem;
+            padding: .5rem;
+            background: #e9ecef;
+            border-radius: 4px;
+            font-size: .85rem;
+            display: none;
+        }
+
+            .reference-info.show {
+                display: block;
+            }
+    </style>
+</head>
+<body>
+    <h1>EDM Vocal Generator</h1>
+    <p class="small">Local web UI → calls <code>/api/*</code> on this server.</p>
+
+    <label>Text</label>
+    <textarea id="text" rows="4">Bring the energy up tonight.</textarea>
+
+    <div class="performance-section">
+        <div class="performance-title">Performance Mode</div>
+        <div class="row">
+            <label>
+                Vocal Style
+                <select id="performanceMode">
+                    <option value="normal">Normal</option>
+                    <option value="chant">Chant (Rhythmic)</option>
+                    <option value="rap">Rap (Punchy)</option>
+                    <option value="ballad">Ballad (Smooth)</option>
+                    <option value="aggressive">Aggressive (Harsh)</option>
+                </select>
+            </label>
+            <div class="small" style="max-width:400px; margin-top:1rem;">
+                <strong>Chant:</strong> Rhythmic, clear consonants for hook sections<br>
+                <strong>Rap:</strong> Sharp attacks, fast delivery<br>
+                <strong>Ballad:</strong> Smooth, emotional delivery<br>
+                <strong>Aggressive:</strong> Harsh, cutting through dense mix
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <label>
+            Voice
+            <select id="voice"></select>
+        </label>
+        <label>
+            Speed <span id="speedVal" class="small">1.0</span><br />
+            <input id="speed" type="range" min="0.5" max="1.5" step="0.05" value="1.0" />
+        </label>
+        <label>
+            Pitch (semitones) <span id="pitchVal" class="small">0</span><br />
+            <input id="pitch" type="range" min="-12" max="12" step="0.5" value="0" />
+        </label>
+    </div>
+
+    <div class="row">
+        <label>
+            Reverb Mix <span id="revVal" class="small">0.0</span><br />
+            <input id="reverb" type="range" min="0" max="1" step="0.05" value="0" />
+        </label>
+        <label>
+            Reverb Size <span id="revSizeVal" class="small">0.5</span><br />
+            <input id="reverbSize" type="range" min="0.1" max="0.9" step="0.1" value="0.5" />
+        </label>
+        <label>
+            Delay Mix <span id="dlyVal" class="small">0.0</span><br />
+            <input id="delay" type="range" min="0" max="1" step="0.05" value="0" />
+        </label>
+    </div>
+
+    <div class="row">
+        <label>
+            BPM <span id="bpmVal" class="small">120</span><br />
+            <input id="bpm" type="range" min="60" max="200" step="5" value="120" />
+        </label>
+        <label>
+            Warmth <span id="warmthVal" class="small">0.0</span><br />
+            <input id="warmth" type="range" min="0" max="1" step="0.1" value="0" />
+        </label>
+        <label>
+            Presence <span id="presenceVal" class="small">0.0</span><br />
+            <input id="presence" type="range" min="0" max="1" step="0.1" value="0" />
+        </label>
+        <label>
+            Width <span id="widthVal" class="small">0.5</span><br />
+            <input id="width" type="range" min="0" max="1" step="0.1" value="0.5" />
+        </label>
+    </div>
+
+    <div class="row">
+        <label><input id="singingMode" type="checkbox" /> Singing Mode</label>
+        <label><input id="doubles" type="checkbox" /> Harmonies</label>
+        <label><input id="delaySync" type="checkbox" checked /> Sync Delay to BPM</label>
+        <label>
+            Sample Rate
+            <select id="sampleRate">
+                <option value="44100">44.1 kHz</option>
+                <option value="48000" selected>48 kHz</option>
+                <option value="96000">96 kHz</option>
+            </select>
+        </label>
+        <label>
+            Format
+            <select id="format">
+                <option>wav</option>
+                <option>mp3</option>
+            </select>
+        </label>
+    </div>
+
+    <div class="humanization-section">
+        <div class="humanization-title">
+            Voice Cloning & Reference
+            <span id="refStatus" class="reference-status" style="display:none;"></span>
+        </div>
+
+        <div class="row">
+            <div style="flex:1; padding-top:1rem;">
+                <div class="file-input-wrapper">
+                    <input type="file" id="refFile" accept=".wav,.mp3,.flac,.ogg,audio/*">
+                    <label for="refFile" class="file-input-label" id="refFileLabel">
+                        📁 Choose Reference Voice<br>
+                        <small style="opacity: 0.7;">or drag & drop audio file here</small>
+                    </label>
+                </div>
+                <span id="refStatus" class="reference-status" style="display:none;"></span>
+            </div>
+            
+            <label style="flex:1;">
+                <input type="checkbox" id="timbreClone" disabled>
+                <span id="timbreCloneLabel" style="opacity:.5">Enable Voice Cloning</span>
+            </label>
+        </div>
+
+        <div id="referenceInfo" class="reference-info">
+            <strong>Reference loaded:</strong> <span id="refFileName"></span><br>
+            <span id="refDetails"></span>
+            <input type="hidden" id="referenceId" value="">
+        </div>
+
+        <div class="row" id="cloningControls" style="display:none;">
+            <label style="flex:1;">
+                Clone Strength <span id="cloneStrengthVal" class="small">80%</span><br />
+                <input id="cloneStrength" type="range" min="0" max="100" step="5" value="80" />
+            </label>
+            
+            <label style="flex:1;">
+                Clone Quality
+                <select id="cloneQuality">
+                    <option value="fast">Fast (10s)</option>
+                    <option value="balanced" selected>Balanced (20s)</option>
+                    <option value="high">High Quality (40s)</option>
+                </select>
+            </label>
+        </div>
+        
+        <div class="row">
+            <label style="flex:1;">
+                Humanization <span id="humanIntensityVal" class="small">70%</span><br />
+                <input id="humanIntensity" type="range" min="0" max="100" step="5" value="70" />
+            </label>
+
+            <label style="flex:1;">
+                <input type="checkbox" id="refAdapt">
+                <span id="refAdaptLabel">Adapt to Reference Style</span>
+            </label>
+        </div>
+    </div>
+
+    <div class="panel">
+        <div class="status">
+            <span id="statusPill" class="pill">Idle</span>
+            <span id="statusText" class="small"></span>
+        </div>
+
+        <div id="progress" class="progress-container">
+            <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+        </div>
+
+        <div class="actions">
+            <button id="go">Generate</button>
+            <button id="previewBtn" style="display:none;">Preview</button>
+            <button id="downloadBtn" style="display:none;">Download</button>
+            <button id="resetBtn" style="display:none;">Reset</button>
+            <button id="defaultBtn">Default</button>
+        </div>
+        <div id="error"></div>
+        <audio id="player" controls style="width:100%; display:none; margin-top:8px;"></audio>
+    </div>
+
+    <script>
+        const qs = id => document.getElementById(id);
+        const upd = (id, v) => qs(id).textContent = v;
+
+        let referenceProfile = null;
+        let referenceLoaded = false;
+
+        const state = { audioUrl: null, filename: null };
+        const pill = qs('statusPill'), statusText = qs('statusText'), player = qs('player'),
+            errorBox = qs('error'), previewBtn = qs('previewBtn'),
+            downloadBtn = qs('downloadBtn'), resetBtn = qs('resetBtn'), goBtn = qs('go'),
+            defaultBtn = qs('defaultBtn');
+
+        let currentJobId = null;
+        let progressInterval = null;
+
+        function setMode(mode, msg = '') {
+            statusText.textContent = msg || '';
+            errorBox.style.display = (mode === 'error') ? 'block' : 'none';
+            const modeStyles = {
+                idle: ['Idle', '#fafafa', '#e0e0e0'],
+                generating: ['Generating…', '#eef7ff', '#b9dcff'],
+                ready: ['Ready', '#f3fff3', '#cceccc'],
+                error: ['Error', '#fff0f0', '#ffd6d6']
+            };
+            const [label, bg, border] = modeStyles[mode] || modeStyles.idle;
+            pill.textContent = label; pill.style.background = bg; pill.style.borderColor = border;
+            previewBtn.style.display = (mode === 'ready') ? 'inline-block' : 'none';
+            downloadBtn.style.display = (mode === 'ready') ? 'inline-block' : 'none';
+            resetBtn.style.display = (mode === 'ready' || mode === 'error') ? 'inline-block' : 'none';
+            goBtn.disabled = (mode === 'generating');
+        }
+
+        ['speed', 'pitch', 'reverb', 'delay', 'reverbSize', 'bpm', 'warmth', 'presence', 'width'].forEach(id => {
+            qs(id).addEventListener('input', e => {
+                const displayMap = { reverb: 'revVal', delay: 'dlyVal', reverbSize: 'revSizeVal', bpm: 'bpmVal', warmth: 'warmthVal', presence: 'presenceVal', width: 'widthVal' };
+                upd(displayMap[id] || id + 'Val', e.target.value);
+            });
+        });
+
+        qs('humanIntensity').addEventListener('input', e => {
+            upd('humanIntensityVal', e.target.value + '%');
+        });
+
+        qs('cloneStrength').addEventListener('input', e => {
+            upd('cloneStrengthVal', e.target.value + '%');
+        });
+
+        // Voice cloning checkbox handler
+        qs('timbreClone').addEventListener('change', e => {
+            const controls = qs('cloningControls');
+            if (e.target.checked) {
+                if (!referenceLoaded) {
+                    e.target.checked = false;
+                    alert('Please upload a reference voice first');
+                    return;
+                }
+                controls.style.display = 'flex';
+            } else {
+                controls.style.display = 'none';
+            }
+        });
+
+        function showErr(msg) { errorBox.textContent = msg; setMode('error', msg); }
+        function hideProgress() { qs('progress').style.display = 'none'; if (progressInterval) { clearInterval(progressInterval); progressInterval = null; } currentJobId = null; }
+        function showProgress(jobId) {
+            currentJobId = jobId;
+            qs('progress').style.display = 'block';
+            progressInterval = setInterval(async () => {
+                try {
+                    const r = await fetch(`/api/jobs/${jobId}/status`);
+                    const status = await r.json();
+                    updateProgressUI(status);
+                    if (status.status === 'completed' || status.status === 'failed') { hideProgress(); }
+                } catch (e) { console.log('Progress polling error:', e); }
+            }, 200);
+        }
+        function updateProgressUI(status) {
+            const progressFill = qs('progressFill');
+            const statusMessages = {
+                'pending': 'Preparing synthesis...',
+                'preprocessing': 'Applying performance mode...',
+                'starting': 'Initializing engine...',
+                'synthesizing': 'Generating speech...',
+                'processing': 'Processing audio...',
+                'applying_effects': 'Applying effects...',
+                'converting_mp3': 'Converting to MP3...',
+                'completed': 'Complete!',
+                'failed': 'Failed'
+            };
+            const message = statusMessages[status.status] || 'Working...';
+            const progress = status.progress || 0;
+            if (status.status === 'failed') { statusText.innerHTML = `✗ ${message}`; }
+            else if (status.status !== 'completed') { statusText.innerHTML = `<span class="spinner"></span>${message}`; }
+            progressFill.style.width = `${progress}%`;
+        }
+
+        async function loadVoices() {
+            try {
+                const r = await fetch('/api/voices');
+                const data = await r.json();
+                const sel = qs('voice'); sel.innerHTML = '';
+                const voices = data.voices || [];
+                const groups = { 'Robotic': [], 'English': [], 'British': [], 'Australian': [], 'International': [] };
+                voices.forEach(v => {
+                    if (v === 'Robotic') groups.Robotic.push(v);
+                    else if (v.includes('British')) groups.British.push(v);
+                    else if (v.includes('Australian')) groups.Australian.push(v);
+                    else if (v.includes('Realistic')) groups.English.push(v);
+                    else groups.International.push(v);
+                });
+                Object.entries(groups).forEach(([label, arr]) => {
+                    if (!arr.length) return;
+                    const og = document.createElement('optgroup'); og.label = label;
+                    arr.forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = v; og.appendChild(o); });
+                    sel.appendChild(og);
+                });
+                if (voices.includes('Robotic')) sel.value = 'Robotic';
+            } catch (e) { showErr('Failed to load voices. Is the backend running?'); }
+        }
+
+        // --- Reference Upload / Analyze ---
+        function clearReference() {
+            referenceProfile = null; referenceLoaded = false;
+            qs('refAdapt').checked = false; qs('refAdapt').disabled = true;
+            qs('refAdaptLabel').style.opacity = '0.5';
+            qs('timbreClone').checked = false; qs('timbreClone').disabled = true;
+            qs('timbreCloneLabel').style.opacity = '0.5';
+            qs('cloningControls').style.display = 'none';
+            qs('referenceInfo').classList.remove('show');
+            qs('referenceId').value = '';
+            const rs = qs('refStatus'); rs.style.display = 'none'; rs.className = 'reference-status';
+            qs('refFileLabel').innerHTML = '📁 Choose Reference Voice<br><small style="opacity: 0.7;">or drag & drop audio file here</small>';
+            qs('refDetails').textContent = ''; qs('refFileName').textContent = '';
+            const input = qs('refFile'); if (input) input.value = '';
+        }
+
+        async function processReferenceFile(file) {
+            if (!file) { clearReference(); return; }
+
+            const rs = qs('refStatus'), lbl = qs('refFileLabel');
+            rs.textContent = 'Analyzing...'; rs.className = 'reference-status reference-analyzing'; rs.style.display = 'inline-block';
+            lbl.innerHTML = '⏳ Analyzing...<br><small style="opacity: 0.7;">Processing ' + file.name + '</small>';
+            lbl.className = 'file-input-label processing';
+
+            try {
+                const fd = new FormData(); fd.append('file', file);
+                const resp = await fetch('/api/analyze_reference', { method: 'POST', body: fd });
+                const data = await resp.json();
+
+                // accept both shapes: {profile:{...}} OR {success:true, profile:{...}}
+                const prof = data.profile || null;
+                const refId = data.ref_id || null;
+                if (!prof || !refId) throw new Error(data.error || 'Analysis failed');
+
+                referenceProfile = prof; referenceLoaded = true;
+
+                rs.textContent = 'Ready'; rs.className = 'reference-status reference-loaded';
+                lbl.innerHTML = '✓ ' + file.name + '<br><small style="opacity: 0.7;">Reference loaded successfully</small>';
+                lbl.className = 'file-input-label';
+
+                // Enable voice cloning controls
+                qs('timbreClone').disabled = false;
+                qs('timbreCloneLabel').style.opacity = '1';
+                qs('referenceId').value = refId;
+
+                qs('refAdapt').disabled = false;
+                qs('refAdaptLabel').style.opacity = '1';
+
+                qs('refFileName').textContent = file.name;
+
+                // Enhanced reference details for cloning
+                const tone = (prof.spectral_centroid ?? 2000);
+                const brightness = tone > 2500 ? 'Bright' : tone < 1500 ? 'Dark' : 'Balanced';
+                const pitch = prof.fundamental_frequency ? `${Math.round(prof.fundamental_frequency)}Hz` : 'n/a';
+                const vib = (prof.vibrato_rate_hz != null) ? `${Number(prof.vibrato_rate_hz).toFixed(1)}Hz` : 'n/a';
+                const dur = (prof.duration_seconds != null) ? `${Number(prof.duration_seconds).toFixed(1)}s` : '';
+                const cloneReady = prof.cloning_ready ? '✓ Clone Ready' : '⚠ Limited Quality';
+
+                const parts = [];
+                if (dur) parts.push(`Duration: ${dur}`);
+                if (pitch !== 'n/a') parts.push(`Pitch: ${pitch}`);
+                parts.push(`Vibrato: ${vib}`);
+                parts.push(`Tone: ${brightness}`);
+                parts.push(cloneReady);
+
+                qs('refDetails').textContent = parts.join(' • ');
+                qs('referenceInfo').classList.add('show');
+
+                console.log('Reference analyzed:', referenceProfile, 'ID:', refId);
+            } catch (err) {
+                console.error('Error analyzing reference:', err);
+                const rs = qs('refStatus'), lbl = qs('refFileLabel');
+                rs.textContent = 'Error'; rs.className = 'reference-status reference-error';
+                lbl.innerHTML = '❌ Analysis failed<br><small style="opacity: 0.7;">Please try a different file</small>';
+                lbl.className = 'file-input-label';
+                clearReference();
+            }
+        }
+
+        // Traditional file input handler
+        qs('refFile').addEventListener('change', async (e) => {
+            const file = e.target.files?.[0];
+            await processReferenceFile(file);
+        });
+
+        // Drag and Drop functionality
+        const dropZone = qs('refFileLabel');
+        
+        // Prevent default drag behaviors
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, preventDefaults, false);
+            document.body.addEventListener(eventName, preventDefaults, false);
+        });
+
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        // Highlight drop zone when item is dragged over it
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => {
+                dropZone.classList.add('drag-over');
+            }, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => {
+                dropZone.classList.remove('drag-over');
+            }, false);
+        });
+
+        // Handle dropped files
+        dropZone.addEventListener('drop', async (e) => {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            
+            if (files.length > 0) {
+                const file = files[0];
+                
+                // Check if it's an audio file
+                const validTypes = ['audio/wav', 'audio/mpeg', 'audio/mp3', 'audio/flac', 'audio/ogg', 'audio/webm'];
+                const validExtensions = ['.wav', '.mp3', '.flac', '.ogg'];
+                
+                const isValidType = validTypes.includes(file.type) || 
+                                   validExtensions.some(ext => file.name.toLowerCase().endsWith(ext));
+                
+                if (!isValidType) {
+                    alert('Please drop an audio file (.wav, .mp3, .flac, .ogg)');
+                    return;
+                }
+                
+                // Update the file input to reflect the dropped file
+                const input = qs('refFile');
+                const dt_new = new DataTransfer();
+                dt_new.items.add(file);
+                input.files = dt_new.files;
+                
+                await processReferenceFile(file);
+            }
+        }, false);
+
+        qs('refAdapt').addEventListener('change', e => {
+            if (e.target.checked && !referenceLoaded) {
+                e.target.checked = false;
+                alert('Please select a reference file first');
+            }
+        });
+
+        // --- Generate ---
+        qs('go').addEventListener('click', async () => {
+            errorBox.style.display = 'none';
+            player.style.display = 'none'; player.src = '';
+            state.audioUrl = null; state.filename = null;
+
+            const performanceMode = qs('performanceMode').value;
+            setMode('generating', `Synthesizing ${performanceMode} vocal…`);
+            showProgress('estimating');
+            updateProgressUI({ status: 'pending', progress: 5 });
+
+            const payload = {
+                text: qs('text').value,
+                voice: qs('voice').value || 'Robotic',
+                speed: parseFloat(qs('speed').value),
+                pitch: parseFloat(qs('pitch').value),
+
+                // Performance mode
+                performance_mode: performanceMode,
+
+                // Producer features
+                singing_mode: qs('singingMode').checked,
+                autotune: false,
+                doubles: qs('doubles').checked,
+                bpm: parseInt(qs('bpm').value),
+
+                // FX
+                reverb_mix: parseFloat(qs('reverb').value),
+                reverb_size: parseFloat(qs('reverbSize').value),
+                delay_mix: parseFloat(qs('delay').value),
+                delay_sync: qs('delaySync').checked,
+
+                // Character
+                warmth: parseFloat(qs('warmth').value),
+                presence: parseFloat(qs('presence').value),
+                width: parseFloat(qs('width').value),
+
+                // Quality
+                sample_rate: parseInt(qs('sampleRate').value),
+                format: qs('format').value,
+
+                // Humanization
+                humanize: parseFloat(qs('humanIntensity').value) > 0,
+                humanization_intensity: parseFloat(qs('humanIntensity').value) / 100,
+                reference_profile: referenceProfile,
+                reference_adapt: qs('refAdapt').checked && referenceLoaded,
+
+                // Voice Cloning (NEW)
+                timbre_clone: qs('timbreClone').checked && referenceLoaded,
+                clone_strength: parseFloat(qs('cloneStrength').value) / 100,
+                clone_quality: qs('cloneQuality').value,
+                reference_id: qs('referenceId').value || null
+            };
+
+            try {
+                const r = await fetch('/api/synthesize', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!r.ok) {
+                    const errorData = await r.json().catch(() => ({}));
+                    hideProgress();
+                    showErr('Synthesis failed: ' + (errorData.error || 'Unknown error'));
+                    return;
+                }
+
+                hideProgress();
+                const blob = await r.blob();
+                const url = URL.createObjectURL(blob);
+
+                state.audioUrl = url;
+                state.filename = `vocal_${performanceMode}.${payload.format}`;
+                setMode('ready', `Ready: ${state.filename} (${payload.sample_rate / 1000}kHz)`);
+
+            } catch (e) {
+                hideProgress();
+                showErr('Request error: ' + e.message);
+            }
+        });
+
+        // --- Preview / Download / Reset ---
+        previewBtn.addEventListener('click', () => {
+            if (!state.audioUrl) return;
+            player.src = state.audioUrl; player.style.display = 'block'; player.play();
+        });
+        downloadBtn.addEventListener('click', () => {
+            if (!state.audioUrl) return;
+            const a = document.createElement('a'); a.href = state.audioUrl;
+            a.download = state.filename || 'vocal.wav'; document.body.appendChild(a); a.click(); a.remove();
+        });
+        resetBtn.addEventListener('click', () => {
+            state.audioUrl = null; state.filename = null;
+            player.src = ''; player.style.display = 'none'; setMode('idle');
+        });
+
+        // --- Defaults ---
+        defaultBtn.addEventListener('click', () => {
+            qs('speed').value = 1.0; upd('speedVal', '1.0');
+            qs('pitch').value = 0; upd('pitchVal', '0');
+            qs('reverb').value = 0; upd('revVal', '0.0');
+            qs('reverbSize').value = 0.5; upd('revSizeVal', '0.5');
+            qs('delay').value = 0; upd('dlyVal', '0.0');
+            qs('bpm').value = 120; upd('bpmVal', '120');
+            qs('warmth').value = 0; upd('warmthVal', '0.0');
+            qs('presence').value = 0; upd('presenceVal', '0.0');
+            qs('width').value = 0.5; upd('widthVal', '0.5');
+            qs('performanceMode').value = 'normal';
+            qs('singingMode').checked = false;
+            qs('doubles').checked = false;
+            qs('delaySync').checked = true;
+            qs('sampleRate').value = '48000';
+            qs('format').value = 'wav';
+            if (qs('voice').querySelector('option[value="Robotic"]')) qs('voice').value = 'Robotic';
+            qs('text').value = 'Bring the energy up tonight.';
+
+            // NEW: humanize/reset reference
+            qs('humanIntensity').value = 70; upd('humanIntensityVal', '70%');
+            clearReference();
+        });
+
+        loadVoices();
+        setMode('idle');
+    </script>
+</body>
+</html>

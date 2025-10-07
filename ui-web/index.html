@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EDM Neural Voice Generator</title>
+    <link rel="stylesheet" href="/static/styles.css?v=5">
+</head>
+<body>
+    <!-- Scanline effect -->
+    <div class="scanline"></div>
+    
+    <!-- Tech grid background -->
+    <div class="tech-grid"></div>
+
+    <div class="container">
+        <!-- Header with tech frame -->
+        <div class="header">
+            <div class="header-content">
+                <div class="header-left">
+                    <svg class="header-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/>
+                    </svg>
+                    <div>
+                        <h1 class="header-title">EDM Neural Voice Generator</h1>
+                        <p class="header-subtitle">
+                            Neural voice cloning with <span style="color: var(--cyan-400);">BPM-aware</span> processing
+                        </p>
+                    </div>
+                </div>
+                
+                <div class="status-indicator">
+                    <div class="status-dot idle" id="statusDot"></div>
+                    <span class="status-text" id="statusText">UPLOAD AUDIO TO START</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Grid - fills remaining space -->
+        <div class="main-grid">
+            <!-- Reference Voice -->
+            <div class="grid-panel span-6">
+                <div class="section">
+                    <h2 class="section-title">🎙️ Reference Voice</h2>
+                    <div class="section-content">
+                        <div class="upload-area" id="uploadArea">
+                            <svg class="upload-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                            </svg>
+                            <h3>Drag & drop or click to browse</h3>
+                            <p>MP3, WAV, M4A, FLAC supported</p>
+                            <input type="file" id="fileInput" accept="audio/*" style="display: none;">
+                        </div>
+                        <audio class="hidden" id="referencePlayer" controls style="width: 100%;"></audio>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Text to Synthesize -->
+            <div class="grid-panel span-6">
+                <div class="section">
+                    <h2 class="section-title">⚙️ Text to Synthesize</h2>
+                    <div class="section-content">
+                        <div class="form-group">
+                            <label for="textInput">Enter text:</label>
+                            <textarea id="textInput" rows="4" placeholder="Turn up the energy tonight!" style="flex: 1; min-height: 120px; resize: none;">Turn up the energy tonight!</textarea>
+                        </div>
+                        
+                        <div class="checkbox-group" style="padding: 0.75rem; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(34, 211, 238, 0.2); border-radius: 4px;">
+                            <input type="checkbox" id="optimizeShortText" checked>
+                            <label for="optimizeShortText">Auto-optimize short text (recommended)</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Neural Voice Settings -->
+            <div class="grid-panel span-6">
+                <div class="section">
+                    <h2 class="section-title">🎛️ Neural Voice Settings</h2>
+                    <div class="section-content">
+                        <div class="form-group">
+                            <label for="quality">Quality Mode:</label>
+                            <select id="quality">
+                                <option value="fast">Fast (preview)</option>
+                                <option value="balanced" selected>Balanced</option>
+                                <option value="high">High Quality</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-row">
+                            <div class="form-group-inline">
+                                <label for="similarity">Similarity:</label>
+                                <input type="range" id="similarity" min="0.1" max="1.0" step="0.1" value="0.8">
+                                <span class="range-value" id="similarityValue">0.8</span>
+                            </div>
+                            <div class="form-group-inline">
+                                <label for="diversity">Diversity:</label>
+                                <input type="range" id="diversity" min="0.0" max="1.0" step="0.1" value="0.2">
+                                <span class="range-value" id="diversityValue">0.2</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- EDM & BPM Settings -->
+            <div class="grid-panel span-6">
+                <div class="section">
+                    <h2 class="section-title">🎵 EDM & BPM Settings</h2>
+                    <div class="section-content">
+                        <div class="form-group">
+                            <label>Quick Presets:</label>
+                            <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.5rem;">
+                                <button type="button" class="btn-preset" data-bpm="0">BPM Free</button>
+                                <button type="button" class="btn-preset" data-bpm="70">70 Trap</button>
+                                <button type="button" class="btn-preset" data-bpm="128">128 House</button>
+                                <button type="button" class="btn-preset" data-bpm="140">140 Dubstep</button>
+                                <button type="button" class="btn-preset" data-bpm="174">174 D&B</button>
+                            </div>
+                        </div>
+
+                        <div class="form-group-inline">
+                            <label for="bpm">BPM (Beats Per Minute):</label>
+                            <input type="range" id="bpm" min="60" max="200" step="1" value="128">
+                            <span class="range-value" id="bpmValue" style="font-size: 1.125rem;">128</span>
+                        </div>
+                        
+                        <div style="padding: 0.75rem; background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3); border-radius: 4px;">
+                            <h4 style="color: var(--green-500); font-size: 0.75rem; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+                                <svg style="width: 1rem; height: 1rem;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                                Musical Timing
+                            </h4>
+                            <div class="checkbox-group">
+                                <input type="checkbox" id="syncToBeat">
+                                <label for="syncToBeat">Sync to Beat Grid</label>
+                            </div>
+                            <div class="checkbox-group">
+                                <input type="checkbox" id="quantizeTiming">
+                                <label for="quantizeTiming">Quantize Timing</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Audio Effects -->
+            <div class="grid-panel span-6">
+                <div class="section">
+                    <h2 class="section-title">🎚️ Audio Effects</h2>
+                    <div class="section-content">
+                        <div class="checkbox-group" style="padding: 0.75rem; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(34, 211, 238, 0.2); border-radius: 4px; justify-content: space-between;">
+                            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                <input type="checkbox" id="addReverb">
+                                <label for="addReverb" style="text-transform: uppercase; font-size: 0.875rem;">Add Reverb</label>
+                            </div>
+                        </div>
+                        
+                        <div class="checkbox-group" style="padding: 0.75rem; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(34, 211, 238, 0.2); border-radius: 4px; justify-content: space-between;">
+                            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                <input type="checkbox" id="addDelay">
+                                <label for="addDelay" style="text-transform: uppercase; font-size: 0.875rem;">Add Delay</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Output Visualization & Generate Button -->
+            <div class="grid-panel span-6">
+                <div class="section">
+                    <h2 class="section-title">⚡ Output</h2>
+                    <div class="section-content">
+                        <div class="output-visualization" id="outputViz" style="flex: 1;">
+                            <div class="output-placeholder">
+                                Upload a reference voice file to begin
+                            </div>
+                        </div>
+                        
+                        <div id="statusMessage" class="status-message hidden"></div>
+                        <audio class="hidden" id="resultPlayer" controls style="width: 100%; margin-bottom: 1rem;"></audio>
+                        
+                        <button class="btn btn-primary" id="generateBtn" style="width: 100%; padding: 1rem; font-size: 1rem; background: linear-gradient(135deg, var(--cyan-500), var(--pink-500)); position: relative; overflow: hidden;">
+                            🎵 Generate Neural Vocal
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Upload handling
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const referencePlayer = document.getElementById('referencePlayer');
+
+        uploadArea.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.style.borderColor = 'var(--cyan-400)';
+            uploadArea.style.backgroundColor = 'rgba(34, 211, 238, 0.1)';
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.style.borderColor = 'rgba(34, 211, 238, 0.3)';
+            uploadArea.style.backgroundColor = 'transparent';
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.style.borderColor = 'rgba(34, 211, 238, 0.3)';
+            uploadArea.style.backgroundColor = 'transparent';
+            
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFileUpload(files[0]);
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFileUpload(e.target.files[0]);
+            }
+        });
+
+        // Global state for reference audio
+        let referenceAudioId = null;
+
+        function handleFileUpload(file) {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            fetch('/api/upload_reference', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Store the reference ID for voice cloning
+                    referenceAudioId = data.reference_id;
+                    
+                    // Create a blob URL for the audio player
+                    const blob = new Blob([file], { type: file.type });
+                    const url = URL.createObjectURL(blob);
+                    
+                    referencePlayer.src = url;
+                    referencePlayer.classList.remove('hidden');
+                    document.getElementById('statusText').textContent = 'READY TO GENERATE';
+                    document.getElementById('statusDot').className = 'status-dot ready';
+                    
+                    // Show ready state animation
+                    showReadyState();
+                } else {
+                    throw new Error(data.detail || 'Upload failed');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                document.getElementById('statusText').textContent = 'UPLOAD ERROR';
+                document.getElementById('statusDot').className = 'status-dot error';
+                resetOutputVisualization();
+            });
+        }
+
+        // Wave animation management
+        let processingStartTime = null;
+        let animationTimeoutId = null;
+
+        // Scanline effect management
+        function startScanlineEffect() {
+            const scanline = document.querySelector('.scanline');
+            scanline.classList.remove('active');
+            // Force reflow to restart animation
+            scanline.offsetHeight;
+            scanline.classList.add('active');
+            
+            // Remove active class after animation completes (8 seconds)
+            setTimeout(() => {
+                scanline.classList.remove('active');
+            }, 8000);
+        }
+
+        function createWaveAnimation(intensity = 'fast') {
+            const bars = Array.from({length: 15}, () => '<div class="wave-bar"></div>').join('');
+            return `
+                <div class="wave-animation">
+                    <div class="wave-bars ${intensity}">
+                        ${bars}
+                    </div>
+                    <div class="processing-text">Processing Neural Voice...</div>
+                </div>
+            `;
+        }
+
+        function startProcessingAnimation() {
+            processingStartTime = Date.now();
+            const outputViz = document.getElementById('outputViz');
+            
+            // Start with fast animation
+            outputViz.innerHTML = createWaveAnimation('fast');
+            
+            // Upgrade to medium after 2 seconds
+            animationTimeoutId = setTimeout(() => {
+                if (processingStartTime) { // Check if still processing
+                    outputViz.innerHTML = createWaveAnimation('medium');
+                    
+                    // Upgrade to long after 5 more seconds
+                    animationTimeoutId = setTimeout(() => {
+                        if (processingStartTime) { // Check if still processing
+                            outputViz.innerHTML = createWaveAnimation('long');
+                        }
+                    }, 5000);
+                }
+            }, 2000);
+        }
+
+        function stopProcessingAnimation() {
+            processingStartTime = null;
+            if (animationTimeoutId) {
+                clearTimeout(animationTimeoutId);
+                animationTimeoutId = null;
+            }
+        }
+
+        function showSuccessAnimation() {
+            const outputViz = document.getElementById('outputViz');
+            outputViz.innerHTML = `
+                <div class="wave-animation">
+                    <div style="color: var(--green-500); font-size: 1.125rem; font-weight: 600;">
+                        🎉 Voice Generated Successfully!
+                    </div>
+                    <div style="color: var(--slate-400); font-size: 0.875rem; margin-top: 0.5rem;">
+                        Check the audio player below
+                    </div>
+                </div>
+            `;
+        }
+
+        function resetOutputVisualization() {
+            const outputViz = document.getElementById('outputViz');
+            outputViz.innerHTML = `
+                <div class="output-placeholder">
+                    Upload a reference voice file to begin
+                </div>
+            `;
+        }
+
+        function showReadyState() {
+            const outputViz = document.getElementById('outputViz');
+            outputViz.innerHTML = `
+                <div class="wave-animation">
+                    <div style="color: var(--cyan-400); font-size: 1rem; font-weight: 600;">
+                        🎙️ Ready to Generate
+                    </div>
+                    <div style="color: var(--slate-400); font-size: 0.875rem; margin-top: 0.5rem;">
+                        Click Generate Neural Vocal to start
+                    </div>
+                </div>
+            `;
+        }
+
+        // Range input updates
+        ['similarity', 'diversity', 'bpm'].forEach(id => {
+            const input = document.getElementById(id);
+            const valueDisplay = document.getElementById(id + 'Value');
+            input.addEventListener('input', () => {
+                valueDisplay.textContent = input.value;
+            });
+        });
+
+        // BPM preset buttons
+        document.querySelectorAll('.btn-preset').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const bpm = btn.dataset.bpm;
+                document.getElementById('bpm').value = bpm;
+                document.getElementById('bpmValue').textContent = bpm;
+                
+                // Remove active class from all presets
+                document.querySelectorAll('.btn-preset').forEach(b => b.classList.remove('active'));
+                // Add active class to clicked button
+                btn.classList.add('active');
+            });
+        });
+
+        // Generate button
+        document.getElementById('generateBtn').addEventListener('click', async () => {
+            const button = document.getElementById('generateBtn');
+            const statusMessage = document.getElementById('statusMessage');
+            const resultPlayer = document.getElementById('resultPlayer');
+            
+            try {
+                button.disabled = true;
+                button.textContent = '🔄 Processing...';
+                statusMessage.textContent = 'Generating neural voice...';
+                statusMessage.classList.remove('hidden');
+                
+                document.getElementById('statusText').textContent = 'PROCESSING';
+                document.getElementById('statusDot').className = 'status-dot processing';
+
+                // Start wave animation and scanline effect
+                startProcessingAnimation();
+                startScanlineEffect();
+
+                // Check if we have a reference audio uploaded
+                if (!referenceAudioId) {
+                    throw new Error('Please upload a reference audio file first');
+                }
+
+                const params = {
+                    text: document.getElementById('textInput').value,
+                    reference_id: referenceAudioId,
+                    quality: document.getElementById('quality').value,
+                    similarity_boost: parseFloat(document.getElementById('similarity').value),
+                    diversity: parseFloat(document.getElementById('diversity').value),
+                    bpm: parseInt(document.getElementById('bpm').value),
+                    optimize_short_text: document.getElementById('optimizeShortText').checked,
+                    add_reverb: document.getElementById('addReverb').checked,
+                    add_delay: document.getElementById('addDelay').checked,
+                    sync_to_beat: document.getElementById('syncToBeat').checked,
+                    quantize_timing: document.getElementById('quantizeTiming').checked
+                };
+
+                const response = await fetch('/api/clone_voice', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(params)
+                });
+
+                // Stop wave animation
+                stopProcessingAnimation();
+
+                if (response.ok) {
+                    // The response is the audio file directly, create a blob URL
+                    const audioBlob = await response.blob();
+                    const audioUrl = URL.createObjectURL(audioBlob);
+                    
+                    resultPlayer.src = audioUrl;
+                    resultPlayer.classList.remove('hidden');
+                    statusMessage.textContent = 'Voice generated successfully!';
+                    
+                    document.getElementById('statusText').textContent = 'COMPLETE';
+                    document.getElementById('statusDot').className = 'status-dot ready';
+                    
+                    // Show success animation
+                    showSuccessAnimation();
+                } else {
+                    // Try to get error details from response
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || 'Generation failed');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                statusMessage.textContent = `Error: ${error.message}`;
+                document.getElementById('statusText').textContent = 'ERROR';
+                document.getElementById('statusDot').className = 'status-dot error';
+                
+                // Stop wave animation and show error
+                stopProcessingAnimation();
+                const outputViz = document.getElementById('outputViz');
+                outputViz.innerHTML = `
+                    <div class="output-placeholder">
+                        ❌ Generation failed. Please try again.
+                    </div>
+                `;
+            } finally {
+                button.disabled = false;
+                button.textContent = '🎵 Generate Neural Vocal';
+            }
+        });
+        
+        // Initialize the page
+        resetOutputVisualization();
+    </script>
+</body>
+</html>
