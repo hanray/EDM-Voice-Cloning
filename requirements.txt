@@ -1,0 +1,35 @@
+# Core AI/ML Packages
+torch>=2.0.0
+torchaudio>=2.0.0
+transformers>=4.55.0
+numpy>=2.0.0
+scipy>=1.16.0
+
+# TTS Engines
+TTS==0.22.0
+pyttsx3==2.90
+
+# Audio Processing & Voice Conversion
+librosa>=0.10.1
+soundfile>=0.12.1
+pedalboard>=0.8.0
+pydub>=0.25.1
+
+# Web Backend
+fastapi>=0.111.0
+uvicorn[standard]>=0.30.1
+python-multipart>=0.0.20
+
+# Desktop GUI (Optional)
+PyQt6>=6.0.0
+
+# Edge TTS (Optional enhancement)
+edge-tts>=7.0.0
+
+# Development & Utilities
+requests>=2.32.0
+pathlib
+typing-extensions
+
+# Note: RVC voice conversion uses custom implementation with PyTorch
+# No external RVC packages required - all implemented in src/audio/rvc_converter.py
