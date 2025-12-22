@@ -1,0 +1,172 @@
+:root {
+  --slate-950: #020617;
+  --slate-900: #0f172a;
+  --slate-800: #1e293b;
+  --slate-700: #334155;
+  --slate-600: #475569;
+  --slate-400: #94a3b8;
+  --slate-300: #cbd5e1;
+  --cyan-400: #22d3ee;
+  --cyan-500: #06b6d4;
+  --pink-500: #ec4899;
+  --green-500: #22c55e;
+  --orange-500: #f97316;
+  --purple-500: #a855f7;
+  --panel-header-height: 2.25rem;
+  --panel-header-gap: 0.5rem;
+  --panel-padding-top-extra: 0.75rem;
+  --panel-row-gap: 0.75rem;
+  --dropzone-min-height: 180px;
+  --panel-inline-min-height: auto;
+  --panel-inline-height: auto;
+  --panel-inline-margin: 0;
+  --panel-inline-padding: 0;
+  --panel-inline-flex: initial;
+  --panel-inline-flex-grow: 0;
+  --panel-inline-flex-shrink: 1;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --shadow-soft: 0 10px 30px rgba(0,0,0,0.35);
+  --border-glow: 1px solid rgba(34, 211, 238, 0.25);
+  --bg-panel: rgba(15, 23, 42, 0.6);
+  --bg-elevated: rgba(15, 23, 42, 0.8);
+  --text-primary: #e2e8f0;
+  --text-muted: #94a3b8;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  background:
+    linear-gradient(to right, rgba(34, 211, 238, 0.15) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(34, 211, 238, 0.15) 1px, transparent 1px),
+    linear-gradient(135deg, #0a0e1a 0%, #0f1729 50%, #1a0b2e 100%);
+  background-size: 30px 30px, 30px 30px, 100% 100%;
+  color: var(--text-primary);
+}
+
+a { color: var(--cyan-400); }
+
+.app-shell {
+  padding: 1.5rem;
+  max-width: 1400px;
+  margin: 0 auto 3rem;
+}
+
+.grid-row {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  margin-bottom: 1rem;
+}
+
+.panel {
+  background: var(--bg-panel);
+  border: var(--border-glow);
+  border-radius: var(--radius-md);
+  backdrop-filter: blur(8px);
+  padding: 1.5rem;
+  position: relative;
+  min-height: 240px;
+  display: flex;
+  flex-direction: column;
+  row-gap: var(--panel-row-gap);
+  box-shadow: var(--shadow-soft);
+}
+
+.panel__header {
+  position: absolute;
+  top: 0.5rem;
+  left: 1.5rem;
+  right: 1.5rem;
+  height: var(--panel-header-height);
+  display: flex;
+  align-items: center;
+  margin: 0;
+  color: var(--cyan-400);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.panel__body {
+  margin-top: calc(var(--panel-header-height) + var(--panel-header-gap));
+  display: flex;
+  flex-direction: column;
+  gap: var(--panel-row-gap);
+}
+
+.label {
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-size: 0.75rem;
+  color: var(--slate-300);
+  margin: 0 0 0.35rem 0;
+}
+
+.control-row {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.button {
+  background: linear-gradient(135deg, var(--cyan-500), var(--cyan-400));
+  color: #0f172a;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 0.6rem 1rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: transform 0.1s ease, box-shadow 0.2s ease;
+  box-shadow: 0 4px 10px rgba(34, 211, 238, 0.35);
+}
+
+.button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+
+.button:hover:not(:disabled) { transform: translateY(-1px); }
+
+.input, .select {
+  width: 100%;
+  background: rgba(0,0,0,0.5);
+  border: 1px solid rgba(34, 211, 238, 0.3);
+  border-radius: var(--radius-sm);
+  color: #fff;
+  padding: 0.6rem 0.8rem;
+}
+
+.slider-row { display: flex; gap: 0.75rem; align-items: center; }
+
+.audio-shell {
+  border: 1px dashed rgba(34, 211, 238, 0.4);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.5);
+}
+
+.wave-container { position: relative; min-height: 140px; }
+
+.audio-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(64px, 1fr));
+  gap: 0.6rem;
+  margin-top: 0.75rem;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(34, 211, 238, 0.3);
+  color: var(--slate-300);
+  font-size: 0.75rem;
+}

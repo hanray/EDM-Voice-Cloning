@@ -1,0 +1,8 @@
+Start-Process : This command cannot be run because "RedirectStandardOutput" and "RedirectStandardError" are same. Give 
+different inputs and Run your command again.
+At line:1 char:12
++ try { $p = Start-Process -FilePath 'npm.cmd' -ArgumentList 'run','dev ...
++            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : InvalidOperation: (:) [Start-Process], InvalidOperationException
+    + FullyQualifiedErrorId : InvalidOperationException,Microsoft.PowerShell.Commands.StartProcessCommand
+ 

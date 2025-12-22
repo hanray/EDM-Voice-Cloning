@@ -1,0 +1,875 @@
+/* EDM Neural Voice Generator - Cyberpunk Design System */
+
+:root {
+    /* Grayscale (Slate) */
+    --slate-950: #020617;
+    --slate-900: #0f172a;
+    --slate-800: #1e293b;
+    --slate-700: #334155;
+    --slate-600: #475569;
+    --slate-400: #94a3b8;
+    --slate-300: #cbd5e1;
+    
+    /* Accent Colors */
+    --cyan-400: #22d3ee;
+    --cyan-500: #06b6d4;
+    --pink-500: #ec4899;
+    --green-500: #22c55e;
+    --orange-500: #f97316;
+    --purple-500: #a855f7;
+
+    /* Layout tweaks */
+    --panel-header-height: 2.25rem;
+    --panel-header-gap: 0.5rem;
+    --panel-padding-top-extra: 0.75rem;
+    --panel-row-gap: 0.75rem;
+    --dropzone-min-height: 180px;
+    /* Inline reset defaults so intent lives in CSS, not markup */
+    --panel-inline-min-height: auto;
+    --panel-inline-height: auto;
+    --panel-inline-margin: 0;
+    --panel-inline-padding: 0;
+    --panel-inline-flex: initial;
+    --panel-inline-flex-grow: 0;
+    --panel-inline-flex-shrink: 1;
+}
+
+/* ===== BACKGROUND SYSTEM ===== */
+
+/* Multi-layer background with animated grid */
+body, .gradio-container {
+    min-height: 100vh !important;
+    background: 
+        linear-gradient(to right, rgba(34, 211, 238, 0.15) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(34, 211, 238, 0.15) 1px, transparent 1px),
+        linear-gradient(135deg, #0a0e1a 0%, #0f1729 50%, #1a0b2e 100%) !important;
+    background-size: 30px 30px, 30px 30px, 100% 100% !important;
+    font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif !important;
+    overflow-x: hidden !important;
+}
+
+/* Tech grid overlay */
+.tech-grid {
+    position: fixed;
+    inset: 0;
+    opacity: 0.05;
+    pointer-events: none;
+    background-image: 
+        linear-gradient(var(--cyan-400) 1px, transparent 1px),
+        linear-gradient(90deg, var(--cyan-400) 1px, transparent 1px);
+    background-size: 40px 40px;
+    z-index: 1;
+}
+
+/* Scanline effect */
+.scanline {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(34, 211, 238, 0.3), transparent);
+    pointer-events: none;
+    z-index: 1000;
+    opacity: 0;
+    transform: translateY(-100vh);
+}
+
+.scanline.active {
+    opacity: 1;
+    animation: scanTwice 8s linear forwards;
+}
+
+@keyframes scanTwice {
+    0% { transform: translateY(-100vh); }
+    25% { transform: translateY(100vh); }
+    50% { transform: translateY(-100vh); }
+    75% { transform: translateY(100vh); }
+    100% { transform: translateY(-100vh); opacity: 0; }
+}
+
+/* ===== HEADER STYLING ===== */
+
+.gradio-container .prose h1 {
+    color: var(--cyan-400) !important;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-weight: bold;
+    font-size: 1.5rem !important;
+    text-shadow: 0 0 20px rgba(34, 211, 238, 0.5);
+    border-bottom: none;
+    padding-bottom: 0;
+    margin-bottom: 0.5rem !important;
+    position: relative;
+}
+
+.gradio-container .prose h1::before {
+    content: none;
+}
+
+.gradio-container .prose h1::after {
+    content: none;
+}
+
+.gradio-container .prose p {
+    color: var(--slate-400) !important;
+    font-size: 0.875rem;
+}
+
+/* ===== GRID LAYOUT ===== */
+
+.grid-row {
+    gap: 0 !important;
+    margin: 0 !important;
+}
+
+.grid-panel {
+    background: rgba(15, 23, 42, 0.6) !important;
+    backdrop-filter: blur(8px);
+    border-right: 1px solid rgba(34, 211, 238, 0.2) !important;
+    border-bottom: 1px solid rgba(34, 211, 238, 0.2) !important;
+    padding: 1.5rem !important;
+    position: relative;
+    min-height: 240px;
+    display: flex;
+    flex-direction: column;
+    row-gap: var(--panel-row-gap);
+}
+
+/* Alternating border colors */
+.grid-panel:nth-child(even) {
+    border-right: 1px solid rgba(236, 72, 153, 0.2) !important;
+    border-bottom: 1px solid rgba(236, 72, 153, 0.2) !important;
+}
+
+/* Top accent line removed to avoid divider appearing before headers */
+.grid-panel::before {
+    content: none;
+}
+
+/* Divider removed per request */
+.grid-panel::after {
+    content: none;
+}
+
+/* Panel content alignment - fixed grid approach */
+.grid-panel {
+    padding-top: calc(var(--panel-header-height) + var(--panel-header-gap) + var(--panel-padding-top-extra)) !important;
+    position: relative;
+}
+
+/* All headers absolutely positioned at top - creates consistent baseline */
+.grid-panel > .prose:first-child {
+    position: absolute;
+    top: 0.5rem;
+    left: 1.5rem;
+    right: 1.5rem;
+    height: var(--panel-header-height);
+    margin: 0 !important;
+    padding: 0 !important;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+}
+
+.grid-panel .prose h3 {
+    line-height: 1.5rem;
+    height: 100%;
+    display: flex;
+    align-items: center;
+}
+
+/* All content after header starts at same point */
+.grid-panel > *:not(.prose:first-child) {
+    margin-top: 0 !important;
+}
+
+.grid-panel > *:not(.prose:first-child):first-of-type {
+    margin-top: var(--panel-header-gap) !important;
+}
+
+/* Consistent vertical rhythm for all direct children; gap controls spacing */
+.grid-panel > * {
+    margin-bottom: 0 !important;
+}
+
+/* Safety: some Gradio blocks inject wrappers with extra top margins; normalize them */
+.grid-panel > .block,
+.grid-panel > .form,
+.grid-panel > div[class*="component"],
+.grid-panel > div[class*="svelte"],
+.grid-panel > .container,
+.grid-panel > .row {
+    margin-top: 0 !important;
+    padding-top: 0 !important;
+}
+
+.grid-panel > .block:first-of-type,
+.grid-panel > .form:first-of-type,
+.grid-panel > div[class*="component"]:first-of-type,
+.grid-panel > div[class*="svelte"]:first-of-type,
+.grid-panel > .container:first-of-type,
+.grid-panel > .row:first-of-type {
+    margin-top: var(--panel-header-gap) !important;
+}
+
+/* Kill Gradio auto-margin wrappers that add unwanted spacing */
+.grid-panel .auto-margin,
+.grid-panel .hide-container.svelte-11xb1bd {
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+/* Inline reset: neutralize only layout props injected by Gradio inside panels */
+.grid-panel [style*="min-height"],
+.grid-panel [style*="height"] {
+    min-height: var(--panel-inline-min-height) !important;
+    height: var(--panel-inline-height) !important;
+}
+
+.grid-panel [style*="margin"] {
+    margin: var(--panel-inline-margin) !important;
+}
+
+.grid-panel [style*="padding"] {
+    padding: var(--panel-inline-padding) !important;
+}
+
+.grid-panel [style*="flex"] {
+    flex: var(--panel-inline-flex) !important;
+    flex-grow: var(--panel-inline-flex-grow) !important;
+    flex-shrink: var(--panel-inline-flex-shrink) !important;
+}
+
+/* Reapply intended sizing via variables */
+.grid-panel .gradio-audio .container,
+.grid-panel .gradio-audio .hide-container,
+.grid-panel .gradio-audio .upload-container,
+.grid-panel .gradio-file .container {
+    min-height: var(--dropzone-min-height);
+}
+
+/* Reset all component spacing to zero, let parent control it */
+.grid-panel .gradio-radio,
+.grid-panel .gradio-audio,
+.grid-panel .gradio-slider,
+.grid-panel .gradio-number,
+.grid-panel .gradio-checkbox,
+.grid-panel .gradio-dropdown,
+.grid-panel .gradio-textbox,
+.grid-panel .gradio-button {
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+}
+
+/* Compact labels */
+.grid-panel label {
+    margin: 0 0 0.25rem 0 !important;
+    padding: 0 !important;
+}
+
+/* Compact info text */
+.grid-panel .info {
+    margin: 0.125rem 0 0 0 !important;
+    font-size: 0.7rem !important;
+    line-height: 1.2 !important;
+}
+
+/* ===== SECTION TITLES ===== */
+
+.gradio-container .prose h2,
+.gradio-container .prose h3 {
+    color: var(--cyan-400) !important;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600 !important;
+    font-size: 0.875rem !important;
+    margin-top: 0 !important;
+    margin-bottom: 1rem !important;
+}
+
+/* Force consistent bottom margin on section titles inside panels */
+.grid-panel .prose h2,
+.grid-panel .prose h3 {
+    margin-bottom: 1rem !important;
+}
+
+/* ===== FORM CONTROLS ===== */
+
+.gradio-container label {
+    color: var(--slate-300) !important;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    font-size: 0.75rem !important;
+    font-weight: 600 !important;
+}
+
+.gradio-container input,
+.gradio-container textarea,
+.gradio-container select {
+    background: rgba(0, 0, 0, 0.5) !important;
+    border: 1px solid rgba(34, 211, 238, 0.3) !important;
+    border-radius: 3px !important;
+    color: white !important;
+    font-size: 0.75rem !important;
+    transition: all 0.3s ease;
+}
+
+.gradio-container input:focus,
+.gradio-container textarea:focus,
+.gradio-container select:focus {
+    border-color: var(--cyan-400) !important;
+    box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.2) !important;
+    outline: none !important;
+}
+
+/* ===== RANGE SLIDERS ===== */
+
+.gradio-container input[type="range"] {
+    background: transparent !important;
+    border: none !important;
+    height: 4px !important;
+}
+
+.gradio-container input[type="range"]::-webkit-slider-track {
+    background: rgba(34, 211, 238, 0.2) !important;
+    height: 4px !important;
+    border-radius: 2px !important;
+}
+
+.gradio-container input[type="range"]::-webkit-slider-thumb {
+    appearance: none;
+    width: 14px !important;
+    height: 14px !important;
+    background: var(--cyan-400) !important;
+    border-radius: 50% !important;
+    cursor: pointer;
+    box-shadow: 0 1px 4px rgba(34, 211, 238, 0.3) !important;
+}
+
+.gradio-container input[type="range"]::-moz-range-track {
+    background: rgba(34, 211, 238, 0.2) !important;
+    height: 4px !important;
+    border-radius: 2px !important;
+}
+
+.gradio-container input[type="range"]::-moz-range-thumb {
+    background: var(--cyan-400) !important;
+    border: none !important;
+    width: 14px !important;
+    height: 14px !important;
+    border-radius: 50% !important;
+    box-shadow: 0 1px 4px rgba(34, 211, 238, 0.3) !important;
+}
+
+/* ===== RADIO BUTTONS ===== */
+
+.gradio-container input[type="radio"] {
+    appearance: none;
+    width: 20px;
+    height: 20px;
+    min-width: 20px;
+    background: rgba(7, 18, 32, 0.95);
+    border: 2px solid rgba(34, 211, 238, 0.6) !important;
+    border-radius: 4px;
+    cursor: pointer;
+    position: relative;
+    margin-right: 0.75rem !important;
+    transition: all 0.2s ease;
+}
+
+.gradio-container input[type="radio"]::after {
+    content: "✓";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    color: #0a0e1a;
+    font-size: 16px;
+    font-weight: 900;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.gradio-container input[type="radio"]:checked {
+    background: var(--cyan-400) !important;
+    border-color: var(--cyan-400) !important;
+    box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.4), 0 0 14px rgba(34, 211, 238, 0.6);
+}
+
+.gradio-container input[type="radio"]:checked::after {
+    opacity: 1;
+}
+
+.gradio-container label:has(input[type="radio"]) {
+    display: flex !important;
+    align-items: center !important;
+    background: rgba(7, 18, 32, 0.8);
+    border: 1px solid rgba(34, 211, 238, 0.3);
+    color: var(--slate-300) !important;
+    padding: 0.75rem 1.5rem !important;
+    border-radius: 10px;
+    font-weight: 700 !important;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    box-shadow: inset 0 0 12px rgba(34, 211, 238, 0.12), 0 0 10px rgba(34, 211, 238, 0.12);
+    transition: all 0.2s ease;
+    cursor: pointer;
+    opacity: 0.6;
+    margin-bottom: 0.5rem;
+}
+
+.gradio-container label:has(input[type="radio"]:checked) {
+    border-color: var(--cyan-400) !important;
+    background: linear-gradient(135deg, rgba(34, 211, 238, 0.9), rgba(6, 182, 212, 0.9)) !important;
+    color: #0a0e1a !important;
+    box-shadow: 0 0 18px rgba(34, 211, 238, 0.55), inset 0 0 10px rgba(255, 255, 255, 0.1);
+    opacity: 1;
+    font-weight: 800 !important;
+}
+
+/* ===== CHECKBOXES ===== */
+
+.gradio-container input[type="checkbox"] {
+    appearance: none;
+    width: 20px;
+    height: 20px;
+    background: rgba(7, 18, 32, 0.95);
+    border: 2px solid rgba(34, 211, 238, 0.6) !important;
+    border-radius: 4px;
+    cursor: pointer;
+    position: relative;
+    margin-right: 0.75rem;
+    transition: all 0.2s ease;
+}
+
+.gradio-container input[type="checkbox"]::after {
+    content: "✓";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    color: #0a0e1a;
+    font-size: 16px;
+    font-weight: 900;
+    opacity: 0;
+}
+
+.gradio-container input[type="checkbox"]:checked {
+    background: var(--cyan-400) !important;
+    border-color: var(--cyan-400) !important;
+    box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.55), 0 0 14px rgba(34, 211, 238, 0.6);
+}
+
+.gradio-container input[type="checkbox"]:checked::after {
+    opacity: 1;
+}
+
+.gradio-container input[type="checkbox"]:checked + label,
+.gradio-container label:has(input[type="checkbox"]:checked) {
+    color: var(--cyan-400) !important;
+    font-weight: 800 !important;
+    text-shadow: 0 0 12px rgba(34, 211, 238, 0.75);
+}
+
+.gradio-container input[type="checkbox"]:not(:checked) + label,
+.gradio-container label:has(input[type="checkbox"]:not(:checked)) {
+    opacity: 0.65;
+}
+
+/* ===== BUTTONS ===== */
+
+.gradio-container button {
+    background: linear-gradient(135deg, var(--cyan-500), var(--cyan-400)) !important;
+    border: none !important;
+    border-radius: 3px !important;
+    color: white !important;
+    font-weight: 600 !important;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    font-size: 0.75rem !important;
+    padding: 0.5rem 1rem !important;
+    cursor: pointer;
+    transition: all 0.3s ease !important;
+}
+
+/* Normalize audio and upload icon rendering so they stay centered and visible */
+.gradio-container div[class*="audio"] button,
+.gradio-container div.gradio-audio button,
+.gradio-container button.icon {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    color: var(--slate-900) !important;
+    padding: 0.4rem !important;
+    line-height: 1 !important;
+}
+
+.gradio-container div[class*="audio"] button svg,
+.gradio-container div.gradio-audio button svg,
+.gradio-container button.icon svg {
+    display: block !important;
+    width: 18px !important;
+    height: 18px !important;
+    stroke: currentColor !important;
+    fill: currentColor !important;
+    pointer-events: none;
+}
+
+.gradio-container button:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(34, 211, 238, 0.3) !important;
+}
+
+.gradio-container button:disabled {
+    opacity: 0.5 !important;
+    cursor: not-allowed !important;
+    transform: none !important;
+}
+
+/* Primary generate button */
+.gradio-container .btn-generate {
+    background: linear-gradient(135deg, var(--cyan-500), var(--pink-500)) !important;
+    padding: 0.75rem 1.5rem !important;
+    font-size: 0.875rem !important;
+    width: 100%;
+    margin-bottom: 1rem;
+    animation: glow 3s ease-in-out infinite;
+}
+
+@keyframes glow {
+    0%, 100% { box-shadow: 0 0 5px rgba(34, 211, 238, 0.3); }
+    50% { box-shadow: 0 0 20px rgba(34, 211, 238, 0.6); }
+}
+
+/* ===== AUDIO PLAYERS ===== */
+
+.gradio-container audio {
+    width: 100% !important;
+    height: 50px !important;
+    background: rgba(15, 23, 41, 0.8) !important;
+    border: 1px solid rgba(34, 211, 238, 0.3) !important;
+    border-radius: 6px !important;
+    outline: none !important;
+    transition: all 0.3s ease;
+    backdrop-filter: blur(5px);
+    box-shadow: 
+        0 2px 8px rgba(0, 0, 0, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+}
+
+.gradio-container audio:hover {
+    border-color: rgba(34, 211, 238, 0.5) !important;
+    box-shadow: 
+        0 4px 12px rgba(0, 0, 0, 0.4),
+        0 0 15px rgba(34, 211, 238, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+}
+
+/* Audio player control buttons - removed duplicate rules, consolidated above */
+
+/* ===== WAVE ANIMATION VISUALIZATION ===== */
+
+.wave-container {
+    min-height: 100px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 1rem 0;
+}
+
+.output-placeholder {
+    color: var(--slate-400);
+    font-size: 0.875rem;
+    text-align: center;
+    padding: 2rem;
+}
+
+.wave-animation {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 1rem;
+    width: 100%;
+}
+
+/* MODAL STYLES */
+.examples-modal {
+    display: none;
+    position: fixed;
+    z-index: 9999;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(8px);
+}
+
+.examples-modal.active {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.modal-content {
+    background: linear-gradient(135deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.98));
+    border: 2px solid var(--cyan-500);
+    border-radius: 12px;
+    padding: 2rem;
+    max-width: 90vw;
+    max-height: 85vh;
+    overflow-y: auto;
+    position: relative;
+    box-shadow: 0 0 30px rgba(6, 182, 212, 0.3), 0 0 60px rgba(236, 72, 153, 0.2);
+}
+
+.modal-close {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    background: transparent;
+    border: 2px solid var(--pink-500);
+    color: var(--pink-500);
+    font-size: 1.5rem;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s ease;
+}
+
+.modal-close:hover {
+    background: var(--pink-500);
+    color: white;
+    box-shadow: 0 0 20px var(--pink-500);
+    transform: rotate(90deg);
+}
+
+.modal-content h2 {
+    color: var(--cyan-400);
+    font-size: 1.75rem;
+    margin-bottom: 1.5rem;
+    text-align: center;
+    text-shadow: 0 0 10px var(--cyan-500);
+}
+
+.examples-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    margin-top: 1rem;
+}
+
+.examples-table th,
+.examples-table td {
+    padding: 0.75rem 1rem;
+    text-align: left;
+    border-bottom: 1px solid rgba(6, 182, 212, 0.2);
+}
+
+.examples-table th {
+    background: rgba(6, 182, 212, 0.1);
+    color: var(--cyan-400);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.875rem;
+    letter-spacing: 0.05em;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.examples-table td {
+    color: var(--slate-300);
+    font-size: 0.875rem;
+}
+
+.examples-table tbody tr {
+    transition: all 0.3s ease;
+}
+
+.examples-table tbody tr:hover {
+    background: rgba(6, 182, 212, 0.05);
+    box-shadow: 0 0 15px rgba(6, 182, 212, 0.2);
+}
+
+.examples-table tbody tr:nth-child(even) {
+    background: rgba(15, 23, 42, 0.5);
+}
+
+.examples-link {
+    color: var(--cyan-400);
+    text-decoration: none;
+    font-weight: 600;
+    cursor: pointer;
+    border-bottom: 1px solid transparent;
+    transition: all 0.3s ease;
+}
+
+.examples-link:hover {
+    color: var(--pink-400);
+    border-bottom-color: var(--pink-400);
+    text-shadow: 0 0 10px var(--pink-500);
+}
+
+/* Audio component empty state text */
+#output-audio audio:not([src])::after {
+    content: 'Upload reference audio to begin';
+    display: block;
+    color: var(--slate-400);
+    text-align: center;
+    padding: 1rem;
+    font-size: 0.875rem;
+}
+
+#output-audio .empty::after {
+    content: 'Upload reference audio to begin';
+    display: block;
+    color: var(--slate-400);
+    text-align: center;
+    padding: 1rem;
+    margin-top: 0.5rem;
+    font-size: 0.875rem;
+}
+
+.wave-bars {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    height: 40px;
+}
+
+.wave-bar {
+    width: 3px;
+    background: linear-gradient(to top, var(--cyan-500), var(--pink-500));
+    border-radius: 2px;
+    opacity: 0.3;
+    transition: all 0.3s ease;
+}
+
+/* Wave animation states */
+.wave-bars.fast .wave-bar {
+    height: 8px;
+    animation: wavePulseFast 0.8s ease-in-out infinite;
+}
+
+.wave-bars.medium .wave-bar {
+    height: 16px;
+    animation: wavePulseMedium 1.2s ease-in-out infinite;
+}
+
+.wave-bars.long .wave-bar {
+    height: 32px;
+    animation: wavePulseLong 1.8s ease-in-out infinite;
+}
+
+@keyframes wavePulseFast {
+    0%, 100% { 
+        transform: scaleY(0.3);
+        opacity: 0.3;
+    }
+    50% { 
+        transform: scaleY(1);
+        opacity: 1;
+    }
+}
+
+@keyframes wavePulseMedium {
+    0%, 100% { transform: scaleY(0.2); opacity: 0.4; }
+    25% { transform: scaleY(0.8); opacity: 0.8; }
+    50% { transform: scaleY(1); opacity: 1; }
+    75% { transform: scaleY(0.6); opacity: 0.7; }
+}
+
+@keyframes wavePulseLong {
+    0% { transform: scaleY(0.1); opacity: 0.2; }
+    12.5% { transform: scaleY(0.4); opacity: 0.5; }
+    25% { transform: scaleY(0.8); opacity: 0.8; }
+    37.5% { transform: scaleY(1); opacity: 1; }
+    50% { transform: scaleY(0.7); opacity: 0.9; }
+    62.5% { transform: scaleY(0.9); opacity: 0.8; }
+    75% { transform: scaleY(0.5); opacity: 0.6; }
+    87.5% { transform: scaleY(0.3); opacity: 0.4; }
+    100% { transform: scaleY(0.1); opacity: 0.2; }
+}
+
+/* Stagger delays for wave effect */
+.wave-bar:nth-child(1) { animation-delay: 0ms; }
+.wave-bar:nth-child(2) { animation-delay: 100ms; }
+.wave-bar:nth-child(3) { animation-delay: 200ms; }
+.wave-bar:nth-child(4) { animation-delay: 300ms; }
+.wave-bar:nth-child(5) { animation-delay: 400ms; }
+.wave-bar:nth-child(6) { animation-delay: 500ms; }
+.wave-bar:nth-child(7) { animation-delay: 400ms; }
+.wave-bar:nth-child(8) { animation-delay: 300ms; }
+.wave-bar:nth-child(9) { animation-delay: 200ms; }
+.wave-bar:nth-child(10) { animation-delay: 100ms; }
+.wave-bar:nth-child(11) { animation-delay: 0ms; }
+.wave-bar:nth-child(12) { animation-delay: 100ms; }
+.wave-bar:nth-child(13) { animation-delay: 200ms; }
+.wave-bar:nth-child(14) { animation-delay: 300ms; }
+.wave-bar:nth-child(15) { animation-delay: 400ms; }
+
+.processing-text {
+    color: var(--cyan-400);
+    font-size: 0.875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    animation: textGlow 2s ease-in-out infinite alternate;
+}
+
+@keyframes textGlow {
+    from {
+        opacity: 0.7;
+        text-shadow: 0 0 5px rgba(34, 211, 238, 0.3);
+    }
+    to {
+        opacity: 1;
+        text-shadow: 0 0 10px rgba(34, 211, 238, 0.6);
+    }
+}
+
+/* ===== SCROLLBAR ===== */
+
+.gradio-container ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.gradio-container ::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.3);
+}
+
+.gradio-container ::-webkit-scrollbar-thumb {
+    background: rgba(34, 211, 238, 0.3);
+    border-radius: 4px;
+}
+
+.gradio-container ::-webkit-scrollbar-thumb:hover {
+    background: rgba(34, 211, 238, 0.5);
+}
+
+/* ===== RESPONSIVE ===== */
+
+@media (max-width: 1200px) {
+    .grid-panel {
+        min-height: 250px;
+    }
+}
+
+@media (max-width: 768px) {
+    .gradio-container .prose h1 {
+        font-size: 1.25rem !important;
+    }
+    
+    .grid-panel {
+        padding: 1rem !important;
+        min-height: 200px;
+    }
+}

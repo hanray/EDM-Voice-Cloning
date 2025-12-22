@@ -1,0 +1,28 @@
+/.venv*/
+/venv/
+/env/
+client.pid
+*.pid
+
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+
+# Local outputs
+logs/
+%LOG_DIR%/
+seed-vc/logs/
+seed-vc/%LOG_DIR%/
+
+# Models and checkpoints (keep out of git; use external storage)
+/checkpoints/
+seed-vc/checkpoints/
+
+# Node artifacts
+seed-vc/ui-client/node_modules/
+seed-vc/ui-client/dist/
+
+# System files
+.DS_Store
+Thumbs.db
