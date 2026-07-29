@@ -1,31 +1,18 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AudioField, AudioValue } from './components/AudioField';
 
-type Engine = 'v1' | 'v2';
 type InputMode = 'audio' | 'text';
 type CadenceMode = 'none' | 'chant' | 'autotune' | 'melody';
 
-interface ConversionParamsV1 {
+interface VoiceParams {
   diffusion_steps: number;
   length_adjust: number;
   inference_cfg_rate: number;
   auto_f0_adjust: boolean;
   pitch_shift: number;
   model_mode: 'voice' | 'singing';
-  tts_voice?: string;
-  tts_engine: 'edge' | 'chatterbox';
-}
-
-interface ConversionParamsV2 {
-  diffusion_steps: number;
-  length_adjust: number;
-  intelligibility_cfg_rate: number;
-  similarity_cfg_rate: number;
-  top_p: number;
-  temperature: number;
-  repetition_penalty: number;
-  convert_style: boolean;
-  anonymization_only: boolean;
+  tts_voice: string;
+  edge_fallback: boolean; // when on, use Edge instead of local Chatterbox
 }
 
 interface MusicalityParams {
@@ -39,14 +26,14 @@ interface MusicalityParams {
   target_bpm: number | null;
   bpm_stretch: boolean;
   grid_quantize: boolean;
-  grid_subdivision: number; // steps per beat: 2 = 1/8, 4 = 1/16
+  grid_subdivision: number;
   grid_strength: number;
   fx_preset: string;
   trim_output: boolean;
   normalize_output: boolean;
 }
 
-const defaultV1: ConversionParamsV1 = {
+const defaultVoice: VoiceParams = {
   diffusion_steps: 10,
   length_adjust: 1.0,
   inference_cfg_rate: 0.7,
@@ -54,23 +41,13 @@ const defaultV1: ConversionParamsV1 = {
   pitch_shift: 0,
   model_mode: 'singing',
   tts_voice: 'en-US-GuyNeural',
-  tts_engine: 'edge',
-};
-
-const defaultV2: ConversionParamsV2 = {
-  diffusion_steps: 30,
-  length_adjust: 1.0,
-  intelligibility_cfg_rate: 0.7,
-  similarity_cfg_rate: 0.7,
-  top_p: 0.7,
-  temperature: 0.7,
-  repetition_penalty: 1.5,
-  convert_style: false,
-  anonymization_only: false,
+  edge_fallback: false,
 };
 
 const defaultMusicality: MusicalityParams = {
-  cadence_mode: 'none',
+  // Chant by default: cloning copies the voice, not the melody — without a
+  // cadence mode, lyrics come out as plain speech.
+  cadence_mode: 'chant',
   key_root: 'A',
   key_scale: 'minor',
   retune_ms: 0,
@@ -81,12 +58,10 @@ const defaultMusicality: MusicalityParams = {
   bpm_stretch: false,
   grid_quantize: false,
   grid_subdivision: 4,
-  grid_strength: 1.0,
+  grid_strength: 0.85,
   fx_preset: 'none',
   trim_output: true,
-  // Dry by default: level and polish belong in the DAW. Enable only if you
-  // want a quick preview-loudness bump.
-  normalize_output: false,
+  normalize_output: false, // dry stems — level decisions belong in the DAW
 };
 
 const FX_PRESETS = [
@@ -99,6 +74,52 @@ const FX_PRESETS = [
   { value: 'echo_chamber', label: 'Echo Chamber' },
   { value: 'deep_voice', label: 'Deep Voice' },
 ];
+
+const CADENCE_MODES: { value: CadenceMode; label: string }[] = [
+  { value: 'chant', label: 'Chant' },
+  { value: 'autotune', label: 'Autotune' },
+  { value: 'melody', label: 'Melody' },
+  { value: 'none', label: 'Natural' },
+];
+
+const STATIONS = [
+  { key: 'source', label: 'Source', stages: ['preprocessing', 'tts'] },
+  { key: 'cadence', label: 'Cadence + Grid', stages: ['cadence'] },
+  { key: 'convert', label: 'Neural Convert', stages: ['converting'] },
+  { key: 'post', label: 'Post', stages: ['postprocessing'] },
+];
+
+async function readError(res: Response): Promise<string> {
+  try {
+    const data = await res.json();
+    if (data?.error) return data.error;
+  } catch {
+    /* not JSON */
+  }
+  return `Conversion failed (HTTP ${res.status})`;
+}
+
+async function streamToUrl(res: Response, onStatus?: (s: string) => void): Promise<string> {
+  const contentType = res.headers.get('content-type') || 'audio/wav';
+  const reader = res.body?.getReader();
+  if (!reader) {
+    const blob = await res.blob();
+    return URL.createObjectURL(blob);
+  }
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) {
+      chunks.push(value);
+      received += value.length;
+      onStatus?.(`Receiving audio — ${(received / 1024).toFixed(0)} KB`);
+    }
+  }
+  const blob = new Blob(chunks as BlobPart[], { type: contentType });
+  return URL.createObjectURL(blob);
+}
 
 function appendMusicality(form: FormData, m: MusicalityParams, midi: File | null) {
   form.append('cadence_mode', m.cadence_mode);
@@ -122,44 +143,10 @@ function appendMusicality(form: FormData, m: MusicalityParams, midi: File | null
   }
 }
 
-async function readError(res: Response): Promise<string> {
-  try {
-    const data = await res.json();
-    if (data?.error) return data.error;
-  } catch {
-    /* not JSON */
-  }
-  return `Conversion failed (HTTP ${res.status})`;
-}
-
-async function streamToUrl(res: Response, onStatus?: (s: string) => void): Promise<string> {
-  const contentType = res.headers.get('content-type') || 'audio/wav';
-  const reader = res.body?.getReader();
-  if (!reader) {
-    const blob = await res.blob();
-    return URL.createObjectURL(blob);
-  }
-
-  const chunks: Uint8Array[] = [];
-  let received = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (value) {
-      chunks.push(value);
-      received += value.length;
-      if (received > 0) onStatus?.(`Receiving audio... ${(received / 1024).toFixed(1)} KB`);
-    }
-  }
-  onStatus?.('Finalizing output...');
-  const blob = new Blob(chunks as BlobPart[], { type: contentType });
-  return URL.createObjectURL(blob);
-}
-
-async function convertV1(
+async function convert(
   source: File | null,
   target: File,
-  params: ConversionParamsV1,
+  voice: VoiceParams,
   musicality: MusicalityParams,
   midi: File | null,
   inputMode: InputMode,
@@ -168,117 +155,86 @@ async function convertV1(
 ): Promise<string> {
   const form = new FormData();
   form.append('target_audio', target);
-  form.append('diffusion_steps', String(params.diffusion_steps));
-  form.append('length_adjust', String(params.length_adjust));
-  form.append('inference_cfg_rate', String(params.inference_cfg_rate));
-  // Singing mode IS the f0-conditioned 44.1 kHz model — one selector, wired for real now.
-  form.append('f0_condition', String(params.model_mode === 'singing'));
-  form.append('auto_f0_adjust', String(params.auto_f0_adjust));
-  form.append('pitch_shift', String(params.pitch_shift));
+  form.append('diffusion_steps', String(voice.diffusion_steps));
+  form.append('length_adjust', String(voice.length_adjust));
+  form.append('inference_cfg_rate', String(voice.inference_cfg_rate));
+  form.append('f0_condition', String(voice.model_mode === 'singing'));
+  form.append('auto_f0_adjust', String(voice.auto_f0_adjust));
+  form.append('pitch_shift', String(voice.pitch_shift));
   appendMusicality(form, musicality, midi);
 
   let endpoint = '/api/v1/convert';
   if (inputMode === 'text') {
     endpoint = '/api/v1/convert_text';
     form.append('text', inputText);
-    form.append('tts_voice', params.tts_voice || 'en-US-GuyNeural');
-    form.append('tts_engine', params.tts_engine);
+    form.append('tts_engine', voice.edge_fallback ? 'edge' : 'chatterbox');
+    form.append('tts_voice', voice.tts_voice);
   } else {
     if (!source) throw new Error('Source audio missing');
     form.append('source_audio', source);
   }
 
-  onStatus?.('Uploading audio...');
+  onStatus?.('Uploading…');
   const res = await fetch(endpoint, { method: 'POST', body: form });
   if (!res.ok) throw new Error(await readError(res));
-
-  onStatus?.('Converting...');
-  return streamToUrl(res, onStatus);
-}
-
-async function convertV2(
-  source: File | null,
-  target: File,
-  params: ConversionParamsV2,
-  musicality: MusicalityParams,
-  midi: File | null,
-  inputMode: InputMode,
-  inputText: string,
-  ttsVoice: string,
-  ttsEngine: 'edge' | 'chatterbox',
-  onStatus?: (s: string) => void,
-): Promise<string> {
-  const form = new FormData();
-  form.append('target_audio', target);
-  form.append('diffusion_steps', String(params.diffusion_steps));
-  form.append('length_adjust', String(params.length_adjust));
-  form.append('intelligibility_cfg_rate', String(params.intelligibility_cfg_rate));
-  form.append('similarity_cfg_rate', String(params.similarity_cfg_rate));
-  form.append('top_p', String(params.top_p));
-  form.append('temperature', String(params.temperature));
-  form.append('repetition_penalty', String(params.repetition_penalty));
-  form.append('convert_style', String(params.convert_style));
-  form.append('anonymization_only', String(params.anonymization_only));
-  appendMusicality(form, musicality, midi);
-
-  let endpoint = '/api/v2/convert';
-  if (inputMode === 'text') {
-    endpoint = '/api/v2/convert_text';
-    form.append('text', inputText);
-    form.append('tts_voice', ttsVoice || 'en-US-GuyNeural');
-    form.append('tts_engine', ttsEngine);
-  } else {
-    if (!source) throw new Error('Source audio missing');
-    form.append('source_audio', source);
-  }
-
-  onStatus?.('Uploading audio...');
-  const res = await fetch(endpoint, { method: 'POST', body: form });
-  if (!res.ok) throw new Error(await readError(res));
-
-  onStatus?.('Converting...');
+  onStatus?.('Processing…');
   return streamToUrl(res, onStatus);
 }
 
 const STAGE_LABELS: Record<string, string> = {
-  preprocessing: 'Preparing audio...',
-  tts: 'Synthesizing speech...',
-  cadence: 'Applying cadence/melody...',
-  converting: 'Neural voice conversion...',
-  postprocessing: 'Trimming + FX...',
+  preprocessing: 'Preparing audio',
+  tts: 'Synthesizing voice',
+  cadence: 'Applying cadence',
+  converting: 'Neural conversion',
+  postprocessing: 'Finishing',
 };
 
-function SliderRow({ label, value, min, max, step, onChange }: { label: string; value: number; min: number; max: number; step: number; onChange: (v: number) => void; }) {
+function SliderRow({ label, value, min, max, step, unit, onChange }: {
+  label: string; value: number; min: number; max: number; step: number; unit?: string;
+  onChange: (v: number) => void;
+}) {
   return (
     <div className="slider-row">
-      <div className="label" style={{ width: 180 }}>{label}</div>
-      <input className="input" type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(parseFloat(e.target.value))} />
-      <div className="badge">{value}</div>
+      <div className="label">{label}</div>
+      <input type="range" min={min} max={max} step={step} value={value}
+        onChange={(e) => onChange(parseFloat(e.target.value))} />
+      <div className="value">{value}{unit || ''}</div>
     </div>
   );
 }
 
+function Switch({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+  return (
+    <input type="checkbox" className="switch" checked={checked} disabled={disabled}
+      onChange={(e) => onChange(e.target.checked)} />
+  );
+}
+
 export default function App() {
-  const [engine, setEngine] = useState<Engine>('v1');
   const [source, setSource] = useState<AudioValue | null>(null);
   const [reference, setReference] = useState<AudioValue | null>(null);
-  const [paramsV1, setParamsV1] = useState<ConversionParamsV1>(defaultV1);
-  const [paramsV2, setParamsV2] = useState<ConversionParamsV2>(defaultV2);
+  const [voice, setVoice] = useState<VoiceParams>(defaultVoice);
   const [musicality, setMusicality] = useState<MusicalityParams>(defaultMusicality);
   const [melodyMidi, setMelodyMidi] = useState<File | null>(null);
   const [outputUrl, setOutputUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [status, setStatus] = useState<string>('Idle');
-  const [inputMode, setInputMode] = useState<InputMode>('audio');
+  const [status, setStatus] = useState<string>('Ready');
+  const [stage, setStage] = useState<string | null>(null);
+  const [inputMode, setInputMode] = useState<InputMode>('text');
   const [inputText, setInputText] = useState<string>('');
+  const [serverUp, setServerUp] = useState<boolean | null>(null);
   const sseRef = useRef<EventSource | null>(null);
 
-  // Live pipeline status from the server while a conversion runs
+  useEffect(() => {
+    fetch('/api/health').then((r) => setServerUp(r.ok)).catch(() => setServerUp(false));
+  }, []);
+
   useEffect(() => {
     if (!loading) {
       sseRef.current?.close();
       sseRef.current = null;
+      setStage(null);
       return;
     }
     const es = new EventSource('/api/events/status');
@@ -286,53 +242,42 @@ export default function App() {
       try {
         const snap = JSON.parse(ev.data);
         if (snap.state === 'busy' && snap.stage) {
-          const label = STAGE_LABELS[snap.stage] || snap.stage;
-          const queued = snap.waiting > 0 ? ` (${snap.waiting} queued)` : '';
-          setStatus(`${label}${queued}`);
+          setStage(snap.stage);
+          const queued = snap.waiting > 0 ? ` · ${snap.waiting} queued` : '';
+          setStatus(`${STAGE_LABELS[snap.stage] || snap.stage}${queued}`);
         }
-      } catch {
-        /* ignore malformed frames */
-      }
-    };
-    es.onerror = () => {
-      /* server may not be reachable mid-restart; fetch errors surface elsewhere */
+      } catch { /* ignore */ }
     };
     sseRef.current = es;
-    return () => {
-      es.close();
-      sseRef.current = null;
-    };
+    return () => { es.close(); sseRef.current = null; };
   }, [loading]);
 
-  const canConvert = useMemo(() => {
+  const canGenerate = useMemo(() => {
     if (!reference) return false;
     if (inputMode === 'text') return inputText.trim().length > 0;
     return !!source;
   }, [inputMode, inputText, reference, source]);
 
+  const m = musicality;
+  const setM = (patch: Partial<MusicalityParams>) => setMusicality({ ...m, ...patch });
+  const setV = (patch: Partial<VoiceParams>) => setVoice({ ...voice, ...patch });
+
   const submit = async () => {
     if (!reference) return;
-    if (inputMode === 'audio' && !source) {
-      setError('Source audio is required');
-      return;
-    }
-    if (inputMode === 'text' && inputText.trim().length === 0) {
-      setError('Please enter lyrics/text');
-      return;
-    }
-    if (musicality.cadence_mode === 'melody' && !melodyMidi) {
+    if (m.cadence_mode === 'melody' && !melodyMidi) {
       setError('Melody mode needs a MIDI file');
       return;
     }
     setError(null);
-    setStatus('Preparing request...');
+    setStatus('Starting…');
     setLoading(true);
     try {
-      const url = engine === 'v2'
-        ? await convertV2(source?.file || null, reference.file, paramsV2, musicality, melodyMidi, inputMode, inputText, paramsV1.tts_voice || 'en-US-GuyNeural', paramsV1.tts_engine, setStatus)
-        : await convertV1(source?.file || null, reference.file, paramsV1, musicality, melodyMidi, inputMode, inputText, setStatus);
+      const url = await convert(
+        source?.file || null, reference.file, voice, m, melodyMidi,
+        inputMode, inputText, setStatus,
+      );
       setOutputUrl(url);
-      setStatus('Completed');
+      setStatus('Done');
     } catch (e: any) {
       setError(e?.message || 'Failed to convert');
       setStatus('Failed');
@@ -341,136 +286,144 @@ export default function App() {
     }
   };
 
-  const m = musicality;
-  const setM = (patch: Partial<MusicalityParams>) => setMusicality({ ...m, ...patch });
+  const stationState = (stages: string[]) => {
+    if (!loading) return '';
+    if (stage && stages.includes(stage)) return ' station--active';
+    const order = ['preprocessing', 'tts', 'cadence', 'converting', 'postprocessing'];
+    if (stage && Math.min(...stages.map((s) => order.indexOf(s))) < order.indexOf(stage)) {
+      return ' station--done';
+    }
+    return '';
+  };
 
   return (
     <div className="app-shell">
-      <h1 style={{ marginBottom: '1rem', letterSpacing: '0.04em', textTransform: 'uppercase' }}>EDM Neural Vocal Studio</h1>
-
-      <div className="control-row" style={{ alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
-        <span className="label" style={{ width: 120 }}>Engine</span>
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <button
-            className="button"
-            style={{ opacity: engine === 'v1' ? 1 : 0.7 }}
-            onClick={() => setEngine('v1')}
-            disabled={loading}
-          >
-            V1 (DiT)
-          </button>
-          <button
-            className="button"
-            style={{ opacity: engine === 'v2' ? 1 : 0.7 }}
-            onClick={() => setEngine('v2')}
-            disabled={loading}
-          >
-            V2 (Streaming)
-          </button>
+      <div className="topbar">
+        <div className="brand">
+          <h1>Neural Vocal Studio</h1>
+          <span className="brand__sub">Seed-VC · Chatterbox · WORLD</span>
         </div>
+        <span className={`led ${loading ? 'led--busy' : serverUp === false ? 'led--err' : serverUp ? 'led--ok' : ''}`}>
+          {loading ? status : serverUp === false ? 'Engine offline' : serverUp ? 'Engine ready' : 'Checking…'}
+        </span>
+      </div>
+
+      <div className="chain">
+        {STATIONS.map((s, i) => (
+          <React.Fragment key={s.key}>
+            {i > 0 && <span className="chain__arrow">→</span>}
+            <span className={`station${stationState(s.stages)}`}>{s.label}</span>
+          </React.Fragment>
+        ))}
       </div>
 
       <div className="grid-row">
         <div className="panel">
-          <div className="panel__header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span>Source Input</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <button
-                className="button"
-                style={{ padding: '0.35rem 0.6rem', fontSize: '0.9rem' }}
-                onClick={() => {
-                  setInputMode(inputMode === 'audio' ? 'text' : 'audio');
-                  setStatus('Idle');
-                  setError(null);
-                }}
-                disabled={loading}
-                title={inputMode === 'audio' ? 'Switch to lyrics/text input' : 'Switch to audio upload'}
-              >
-                {inputMode === 'audio' ? '✎ Lyrics' : '🎙️ Audio'}
-              </button>
+          <div className="panel__header">
+            <span>Source</span>
+            <div className="seg">
+              <button className={`seg__opt${inputMode === 'text' ? ' seg__opt--on' : ''}`}
+                onClick={() => setInputMode('text')} disabled={loading}>Lyrics</button>
+              <button className={`seg__opt${inputMode === 'audio' ? ' seg__opt--on' : ''}`}
+                onClick={() => setInputMode('audio')} disabled={loading}>Audio</button>
             </div>
           </div>
           <div className="panel__body">
-            {inputMode === 'audio' ? (
-              <AudioField label="Source Audio" onChange={setSource} onError={setError} />
-            ) : (
-              <div className="control-row" style={{ flexDirection: 'column', gap: '0.5rem' }}>
-                <label className="label">Lyrics / Text</label>
+            {inputMode === 'text' ? (
+              <>
                 <textarea
                   className="input"
-                  rows={4}
-                  placeholder="Enter lyrics or text to synthesize"
+                  rows={5}
+                  placeholder="Type the lyrics or hook…"
                   value={inputText}
                   onChange={(e) => setInputText(e.target.value)}
                   disabled={loading}
-                  style={{ width: '100%' }}
+                  style={{ width: '100%', resize: 'vertical' }}
                 />
-                <div className="control-row" style={{ gap: '0.5rem', alignItems: 'center' }}>
-                  <label className="label">TTS Engine</label>
-                  <select
-                    className="select"
-                    value={paramsV1.tts_engine}
-                    onChange={(e) => setParamsV1({ ...paramsV1, tts_engine: e.target.value as 'edge' | 'chatterbox' })}
-                    disabled={loading}
-                  >
-                    <option value="edge">Edge (fast, flat)</option>
-                    <option value="chatterbox">Chatterbox (local, clones reference)</option>
-                  </select>
+                <div className="hint">
+                  Voice is synthesized locally by Chatterbox, cloning your reference clip.
                 </div>
-                <div className="control-row" style={{ gap: '0.5rem', alignItems: 'center', opacity: paramsV1.tts_engine === 'chatterbox' ? 0.5 : 1 }}>
-                  <label className="label">TTS Voice</label>
-                  <select
-                    className="select"
-                    value={paramsV1.tts_voice}
-                    onChange={(e) => setParamsV1({ ...paramsV1, tts_voice: e.target.value })}
-                    disabled={loading || paramsV1.tts_engine === 'chatterbox'}
-                  >
-                    <option value="en-US-GuyNeural">English US Male</option>
-                    <option value="en-US-AriaNeural">English US Female</option>
-                    <option value="en-GB-RyanNeural">English UK Male</option>
-                    <option value="en-GB-SoniaNeural">English UK Female</option>
-                    <option value="ja-JP-KeitaNeural">Japanese Male</option>
-                    <option value="ja-JP-NanamiNeural">Japanese Female</option>
-                    <option value="zh-CN-YunxiNeural">Chinese Male</option>
-                    <option value="zh-CN-XiaoxiaoNeural">Chinese Female</option>
-                  </select>
+                <details className="adv">
+                  <summary>TTS options</summary>
+                  <div className="adv__body">
+                    <div className="control-row">
+                      <label className="label">Edge fallback</label>
+                      <Switch checked={voice.edge_fallback} onChange={(v) => setV({ edge_fallback: v })} />
+                      <span className="hint">Microsoft Edge TTS: instant but flat robotic delivery.</span>
+                    </div>
+                    {voice.edge_fallback && (
+                      <div className="control-row">
+                        <label className="label">Edge voice</label>
+                        <select className="select" value={voice.tts_voice}
+                          onChange={(e) => setV({ tts_voice: e.target.value })} disabled={loading}>
+                          <option value="en-US-GuyNeural">English US Male</option>
+                          <option value="en-US-AriaNeural">English US Female</option>
+                          <option value="en-GB-RyanNeural">English UK Male</option>
+                          <option value="en-GB-SoniaNeural">English UK Female</option>
+                          <option value="ja-JP-KeitaNeural">Japanese Male</option>
+                          <option value="ja-JP-NanamiNeural">Japanese Female</option>
+                          <option value="zh-CN-YunxiNeural">Chinese Male</option>
+                          <option value="zh-CN-XiaoxiaoNeural">Chinese Female</option>
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                </details>
+              </>
+            ) : (
+              <>
+                <AudioField label="Source Audio" onChange={setSource} onError={setError} />
+                <div className="hint">
+                  Upload or record a vocal — sung input converts best. Leave cadence on
+                  Natural for material that is already musical.
                 </div>
-              </div>
+              </>
             )}
           </div>
         </div>
 
         <div className="panel">
-          <div className="panel__header">Reference Voice</div>
+          <div className="panel__header"><span>Reference Voice</span></div>
           <div className="panel__body">
             <AudioField label="Reference Audio" onChange={setReference} onError={setError} />
+            <div className="hint">
+              The voice the output will sound like — also used as the cloning prompt
+              for lyrics mode. 5–30s of clean solo vocal works best.
+            </div>
           </div>
         </div>
       </div>
 
       <div className="grid-row">
         <div className="panel">
-          <div className="panel__header">Musicality — Cadence &amp; Pitch</div>
+          <div className="panel__header"><span>Cadence &amp; Pitch</span></div>
           <div className="panel__body">
             <div className="control-row">
-              <label className="label">Cadence Mode</label>
-              <select className="select" value={m.cadence_mode} onChange={(e) => setM({ cadence_mode: e.target.value as CadenceMode })} disabled={loading}>
-                <option value="none">Natural (speech)</option>
-                <option value="chant">Chant (root-note monotone)</option>
-                <option value="autotune">Autotune (scale quantize)</option>
-                <option value="melody">Melody (MIDI file)</option>
-              </select>
+              <div className="seg">
+                {CADENCE_MODES.map((c) => (
+                  <button key={c.value}
+                    className={`seg__opt${m.cadence_mode === c.value ? ' seg__opt--on' : ''}`}
+                    onClick={() => setM({ cadence_mode: c.value })} disabled={loading}>
+                    {c.label}
+                  </button>
+                ))}
+              </div>
             </div>
+            {m.cadence_mode === 'none' && (
+              <div className="hint">No pitch processing — output follows the source's natural speech contour.</div>
+            )}
             {m.cadence_mode !== 'none' && (
               <>
                 <div className="control-row">
                   <label className="label">Key</label>
-                  <select className="select" value={m.key_root} onChange={(e) => setM({ key_root: e.target.value })} disabled={loading}>
+                  <select className="select" value={m.key_root}
+                    onChange={(e) => setM({ key_root: e.target.value })} disabled={loading}>
                     {['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'].map((n) => (
                       <option key={n} value={n}>{n}</option>
                     ))}
                   </select>
-                  <select className="select" value={m.key_scale} onChange={(e) => setM({ key_scale: e.target.value })} disabled={loading}>
+                  <select className="select" value={m.key_scale}
+                    onChange={(e) => setM({ key_scale: e.target.value })} disabled={loading}>
                     <option value="minor">Minor</option>
                     <option value="major">Major</option>
                     <option value="minor_pentatonic">Minor Pentatonic</option>
@@ -480,134 +433,150 @@ export default function App() {
                     <option value="chromatic">Chromatic</option>
                   </select>
                 </div>
-                <SliderRow label="Retune Speed (ms)" value={m.retune_ms} min={0} max={200} step={5} onChange={(v) => setM({ retune_ms: v })} />
-                <SliderRow label="Vibrato (cents)" value={m.vibrato_cents} min={0} max={50} step={1} onChange={(v) => setM({ vibrato_cents: v })} />
-                <SliderRow label="Drift / Humanize (cents)" value={m.drift_cents} min={0} max={30} step={1} onChange={(v) => setM({ drift_cents: v })} />
-                <SliderRow label="Octave Shift" value={m.octave_shift} min={-2} max={2} step={1} onChange={(v) => setM({ octave_shift: v })} />
                 {m.cadence_mode === 'melody' && (
                   <div className="control-row">
                     <label className="label">Melody MIDI</label>
-                    <input
-                      className="input"
-                      type="file"
-                      accept=".mid,.midi"
-                      onChange={(e) => setMelodyMidi(e.target.files?.[0] ?? null)}
-                      disabled={loading}
-                    />
+                    <input className="input" type="file" accept=".mid,.midi"
+                      onChange={(e) => setMelodyMidi(e.target.files?.[0] ?? null)} disabled={loading} />
                     {melodyMidi && <span className="badge">{melodyMidi.name}</span>}
                   </div>
                 )}
+                <details className="adv">
+                  <summary>Fine tune</summary>
+                  <div className="adv__body">
+                    <SliderRow label="Retune speed" value={m.retune_ms} min={0} max={200} step={5} unit="ms"
+                      onChange={(v) => setM({ retune_ms: v })} />
+                    <SliderRow label="Vibrato" value={m.vibrato_cents} min={0} max={50} step={1} unit="¢"
+                      onChange={(v) => setM({ vibrato_cents: v })} />
+                    <SliderRow label="Humanize drift" value={m.drift_cents} min={0} max={30} step={1} unit="¢"
+                      onChange={(v) => setM({ drift_cents: v })} />
+                    <SliderRow label="Octave shift" value={m.octave_shift} min={-2} max={2} step={1}
+                      onChange={(v) => setM({ octave_shift: v })} />
+                  </div>
+                </details>
               </>
             )}
           </div>
         </div>
 
         <div className="panel">
-          <div className="panel__header">Musicality — Rhythm &amp; FX</div>
+          <div className="panel__header"><span>Rhythm</span></div>
           <div className="panel__body">
             <div className="control-row">
-              <label className="label">Target BPM</label>
-              <input className="input" type="number" value={m.target_bpm ?? ''} placeholder="e.g. 128"
-                onChange={(e) => setM({ target_bpm: e.target.value === '' ? null : Number(e.target.value) })} disabled={loading} />
-              <label className="label">Tempo Stretch</label>
-              <input type="checkbox" checked={m.bpm_stretch} onChange={(e) => setM({ bpm_stretch: e.target.checked })} disabled={loading} />
+              <label className="label">Track BPM</label>
+              <input className="input input--num" type="number" placeholder="128"
+                value={m.target_bpm ?? ''}
+                onChange={(e) => setM({ target_bpm: e.target.value === '' ? null : Number(e.target.value) })}
+                disabled={loading} />
             </div>
             <div className="control-row">
-              <label className="label">Grid Quantize</label>
-              <input type="checkbox" checked={m.grid_quantize} onChange={(e) => setM({ grid_quantize: e.target.checked })} disabled={loading || !m.target_bpm} />
-              <select className="select" value={m.grid_subdivision} onChange={(e) => setM({ grid_subdivision: Number(e.target.value) })} disabled={loading || !m.grid_quantize}>
+              <label className="label">Grid quantize</label>
+              <Switch checked={m.grid_quantize} onChange={(v) => setM({ grid_quantize: v })}
+                disabled={loading || !m.target_bpm} />
+              <select className="select" style={{ width: 110 }} value={m.grid_subdivision}
+                onChange={(e) => setM({ grid_subdivision: Number(e.target.value) })}
+                disabled={loading || !m.grid_quantize}>
                 <option value={2}>1/8 notes</option>
                 <option value={4}>1/16 notes</option>
               </select>
             </div>
             {m.grid_quantize && (
-              <SliderRow label="Quantize Strength" value={m.grid_strength} min={0} max={1} step={0.05} onChange={(v) => setM({ grid_strength: v })} />
+              <SliderRow label="Strength" value={m.grid_strength} min={0} max={1} step={0.05}
+                onChange={(v) => setM({ grid_strength: v })} />
             )}
             <div className="control-row">
-              <label className="label">FX Preset</label>
-              <select className="select" value={m.fx_preset} onChange={(e) => setM({ fx_preset: e.target.value })} disabled={loading}>
-                {FX_PRESETS.map((p) => (
-                  <option key={p.value} value={p.value}>{p.label}</option>
-                ))}
-              </select>
+              <label className="label">Tempo stretch</label>
+              <Switch checked={m.bpm_stretch} onChange={(v) => setM({ bpm_stretch: v })}
+                disabled={loading || !m.target_bpm} />
+              <span className="hint">Time-stretch the whole take toward Track BPM.</span>
             </div>
-            <div className="control-row">
-              <label className="label">Trim Output</label>
-              <input type="checkbox" checked={m.trim_output} onChange={(e) => setM({ trim_output: e.target.checked })} disabled={loading} />
-              <label className="label">Normalize</label>
-              <input type="checkbox" checked={m.normalize_output} onChange={(e) => setM({ normalize_output: e.target.checked })} disabled={loading} />
+            <div className="hint">
+              Quantize is taste, not a rule — A/B it. 0.7–0.9 strength keeps some human pocket;
+              never use it on already-sung sources.
             </div>
           </div>
         </div>
       </div>
 
-      {engine === 'v1' ? (
-        <div className="grid-row">
-          <div className="panel">
-            <div className="panel__header">Neural Voice Settings (V1)</div>
-            <div className="panel__body">
-              <SliderRow label="Diffusion Steps" value={paramsV1.diffusion_steps} min={1} max={200} step={1} onChange={(v) => setParamsV1({ ...paramsV1, diffusion_steps: v })} />
-              <SliderRow label="Length Adjust" value={paramsV1.length_adjust} min={0.5} max={2.0} step={0.1} onChange={(v) => setParamsV1({ ...paramsV1, length_adjust: v })} />
-              <SliderRow label="CFG Rate" value={paramsV1.inference_cfg_rate} min={0} max={1} step={0.1} onChange={(v) => setParamsV1({ ...paramsV1, inference_cfg_rate: v })} />
-            </div>
-          </div>
-
-          <div className="panel">
-            <div className="panel__header">Singing / F0 (V1)</div>
-            <div className="panel__body">
-              <div className="control-row">
-                <label className="label">Model Mode</label>
-                <select className="select" value={paramsV1.model_mode} onChange={(e) => setParamsV1({ ...paramsV1, model_mode: e.target.value as 'voice' | 'singing' })} disabled={loading}>
-                  <option value="voice">Voice (22kHz)</option>
-                  <option value="singing">Singing (44kHz, follows pitch)</option>
-                </select>
-              </div>
-              <div className="control-row">
-                <label className="label">Auto F0 Adjust</label>
-                <input type="checkbox" checked={paramsV1.auto_f0_adjust} onChange={(e) => setParamsV1({ ...paramsV1, auto_f0_adjust: e.target.checked })} />
-              </div>
-              <SliderRow label="Pitch Shift (semitones)" value={paramsV1.pitch_shift} min={-24} max={24} step={1} onChange={(v) => setParamsV1({ ...paramsV1, pitch_shift: v })} />
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="grid-row">
-          <div className="panel">
-            <div className="panel__header">Generation Settings (V2)</div>
-            <div className="panel__body">
-              <SliderRow label="Diffusion Steps" value={paramsV2.diffusion_steps} min={1} max={200} step={1} onChange={(v) => setParamsV2({ ...paramsV2, diffusion_steps: v })} />
-              <SliderRow label="Length Adjust" value={paramsV2.length_adjust} min={0.5} max={2.0} step={0.1} onChange={(v) => setParamsV2({ ...paramsV2, length_adjust: v })} />
-              <SliderRow label="Intelligibility CFG" value={paramsV2.intelligibility_cfg_rate} min={0} max={1} step={0.05} onChange={(v) => setParamsV2({ ...paramsV2, intelligibility_cfg_rate: v })} />
-              <SliderRow label="Similarity CFG" value={paramsV2.similarity_cfg_rate} min={0} max={1} step={0.05} onChange={(v) => setParamsV2({ ...paramsV2, similarity_cfg_rate: v })} />
-              <SliderRow label="Top-p" value={paramsV2.top_p} min={0.1} max={1} step={0.05} onChange={(v) => setParamsV2({ ...paramsV2, top_p: v })} />
-              <SliderRow label="Temperature" value={paramsV2.temperature} min={0.1} max={2.0} step={0.1} onChange={(v) => setParamsV2({ ...paramsV2, temperature: v })} />
-              <SliderRow label="Repetition Penalty" value={paramsV2.repetition_penalty} min={0.8} max={3.0} step={0.1} onChange={(v) => setParamsV2({ ...paramsV2, repetition_penalty: v })} />
-              <div className="control-row" style={{ gap: '0.75rem', alignItems: 'center' }}>
-                <label className="label">Convert Style</label>
-                <input type="checkbox" checked={paramsV2.convert_style} onChange={(e) => setParamsV2({ ...paramsV2, convert_style: e.target.checked })} />
-                <label className="label">Anonymize Only</label>
-                <input type="checkbox" checked={paramsV2.anonymization_only} onChange={(e) => setParamsV2({ ...paramsV2, anonymization_only: e.target.checked })} />
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       <div className="grid-row">
         <div className="panel">
-          <div className="panel__header">Output</div>
+          <div className="panel__header"><span>Output</span></div>
           <div className="panel__body">
-            <div className="control-row">
-              <button className="button" onClick={submit} disabled={!canConvert || loading}>{loading ? 'Converting...' : 'Generate Neural Vocal'}</button>
-              <button className="button" onClick={() => setOutputUrl(null)} disabled={!outputUrl}>Clear Output</button>
+            <div className="control-row" style={{ justifyContent: 'space-between' }}>
+              <div className="control-row">
+                <button className="transport" onClick={submit} disabled={!canGenerate || loading}>
+                  {loading ? 'Working…' : 'Generate'}
+                </button>
+                {outputUrl && (
+                  <a className="button" href={outputUrl} download="vocal-stem.wav">Download WAV</a>
+                )}
+                {outputUrl && (
+                  <button className="button" onClick={() => setOutputUrl(null)}>Clear</button>
+                )}
+              </div>
+              <span className="badge">{status}</span>
             </div>
-            <div className="badge" style={{ marginTop: '0.35rem' }}>Status: {status}</div>
-            {error && <div style={{ color: '#fca5a5' }}>{error}</div>}
-            {outputUrl ? (
-              <audio controls src={outputUrl} style={{ width: '100%' }} />
-            ) : (
-              <div className="badge">No output yet</div>
-            )}
+            {error && <div className="error-text">{error}</div>}
+            {outputUrl && <audio controls src={outputUrl} />}
+
+            <details className="adv">
+              <summary>Post — dry by default</summary>
+              <div className="adv__body">
+                <div className="control-row">
+                  <label className="label">FX preset</label>
+                  <select className="select" value={m.fx_preset}
+                    onChange={(e) => setM({ fx_preset: e.target.value })} disabled={loading}>
+                    {FX_PRESETS.map((p) => (
+                      <option key={p.value} value={p.value}>{p.label}</option>
+                    ))}
+                  </select>
+                  <span className="hint">Prefer doing this in the DAW — presets are for quick previews.</span>
+                </div>
+                <div className="control-row">
+                  <label className="label">Trim output</label>
+                  <Switch checked={m.trim_output} onChange={(v) => setM({ trim_output: v })} />
+                  <span className="hint">Removes AI hallucination tails. Error cleanup, not sound shaping.</span>
+                </div>
+                <div className="control-row">
+                  <label className="label">Normalize</label>
+                  <Switch checked={m.normalize_output} onChange={(v) => setM({ normalize_output: v })} />
+                  <span className="hint">Preview loudness only; clip-safe. Off = untouched dry stem.</span>
+                </div>
+              </div>
+            </details>
+
+            <details className="adv">
+              <summary>Voice model</summary>
+              <div className="adv__body">
+                <div className="control-row">
+                  <label className="label">Model</label>
+                  <div className="seg">
+                    <button className={`seg__opt${voice.model_mode === 'singing' ? ' seg__opt--on' : ''}`}
+                      onClick={() => setV({ model_mode: 'singing' })} disabled={loading}>
+                      Singing 44k
+                    </button>
+                    <button className={`seg__opt${voice.model_mode === 'voice' ? ' seg__opt--on' : ''}`}
+                      onClick={() => setV({ model_mode: 'voice' })} disabled={loading}>
+                      Speech 22k
+                    </button>
+                  </div>
+                  <span className="hint">Singing follows pitch (needed for cadence modes).</span>
+                </div>
+                <div className="control-row">
+                  <label className="label">Auto F0 adjust</label>
+                  <Switch checked={voice.auto_f0_adjust} onChange={(v) => setV({ auto_f0_adjust: v })} />
+                  <span className="hint">Shift pitch register toward the reference automatically.</span>
+                </div>
+                <SliderRow label="Pitch shift" value={voice.pitch_shift} min={-24} max={24} step={1} unit="st"
+                  onChange={(v) => setV({ pitch_shift: v })} />
+                <SliderRow label="Diffusion steps" value={voice.diffusion_steps} min={1} max={100} step={1}
+                  onChange={(v) => setV({ diffusion_steps: v })} />
+                <SliderRow label="Length adjust" value={voice.length_adjust} min={0.5} max={2.0} step={0.1} unit="×"
+                  onChange={(v) => setV({ length_adjust: v })} />
+                <SliderRow label="CFG rate" value={voice.inference_cfg_rate} min={0} max={1} step={0.1}
+                  onChange={(v) => setV({ inference_cfg_rate: v })} />
+              </div>
+            </details>
           </div>
         </div>
       </div>

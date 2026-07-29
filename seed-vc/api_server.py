@@ -7,11 +7,8 @@ from typing import Generator, Optional
 
 import torch
 import uvicorn
-import yaml
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import StreamingResponse, JSONResponse, Response
-from hydra.utils import instantiate
-from omegaconf import DictConfig
 import edge_tts
 import librosa
 import numpy as np
@@ -24,9 +21,8 @@ import fx_chain
 import job_status
 import vocal_cadence
 
-# Global model holders
+# Global model holder
 vc_wrapper_v1: Optional[SeedVCWrapper] = None
-vc_wrapper_v2 = None
 
 # Device / dtype
 if torch.cuda.is_available():
@@ -82,20 +78,6 @@ async def _generate_tts(
     await communicate.save(path)
     # Convert to wav immediately for downstream processing
     return _ensure_wav(path)
-
-
-def load_v2_models():
-    global vc_wrapper_v2
-    if vc_wrapper_v2 is not None:
-        return vc_wrapper_v2
-
-    cfg = DictConfig(yaml.safe_load(open("configs/v2/vc_wrapper.yaml", "r")))
-    vc_wrapper_v2 = instantiate(cfg)
-    vc_wrapper_v2.load_checkpoints()
-    vc_wrapper_v2.to(device)
-    vc_wrapper_v2.eval()
-    vc_wrapper_v2.setup_ar_caches(max_batch_size=1, max_seq_len=4096, dtype=dtype, device=device)
-    return vc_wrapper_v2
 
 
 def load_v1_wrapper():
@@ -308,29 +290,6 @@ def _run_v1(source_path: str, target_path: str, **kwargs):
             _cleanup_paths(source_path, target_path)
 
 
-def _run_v2(source_path: str, target_path: str, **kwargs):
-    """Yield WAV chunks from the V2 pipeline, serialized behind the GPU lock."""
-    wrapper = load_v2_models()
-    job_status.adjust_waiting(+1)
-    with job_status.gpu_lock:
-        job_status.adjust_waiting(-1)
-        job_status.set_stage("converting", job="v2")
-        try:
-            for wav_bytes, _ in wrapper.convert_voice_with_streaming(
-                source_audio_path=source_path,
-                target_audio_path=target_path,
-                stream_output=True,
-                device=device,
-                dtype=dtype,
-                **kwargs,
-            ):
-                if wav_bytes:
-                    yield wav_bytes
-        finally:
-            job_status.set_stage(None)
-            _cleanup_paths(source_path, target_path)
-
-
 def _respond(chunk_gen, effects, trim_output, normalize_output):
     """Stream raw chunks when no post-processing is needed; otherwise buffer
     the full conversion, apply output hygiene + FX, and return one WAV."""
@@ -486,7 +445,7 @@ async def convert_v1_text(
     text: str = Form(...),
     target_audio: UploadFile = File(...),
     tts_voice: str = Form("en-US-GuyNeural"),
-    tts_engine: str = Form("edge"),
+    tts_engine: str = Form("chatterbox"),
     diffusion_steps: int = Form(10),
     length_adjust: float = Form(1.0),
     inference_cfg_rate: float = Form(0.7),
@@ -550,154 +509,6 @@ async def convert_v1_text(
         f0_condition=f0_condition,
         auto_f0_adjust=auto_f0_adjust,
         pitch_shift=pitch_shift,
-    )
-
-    result = _respond(chunk_gen, effects, trim_output, normalize_output)
-    if isinstance(result, StreamingResponse):
-        return result
-    wav = await asyncio.to_thread(result)
-    return Response(content=wav, media_type="audio/wav")
-
-
-@app.post("/v2/convert")
-async def convert_v2(
-    source_audio: UploadFile = File(...),
-    target_audio: UploadFile = File(...),
-    diffusion_steps: int = Form(30),
-    length_adjust: float = Form(1.0),
-    intelligibility_cfg_rate: float = Form(0.7, alias="intelligebility_cfg_rate"),
-    similarity_cfg_rate: float = Form(0.7),
-    top_p: float = Form(0.7),
-    temperature: float = Form(0.7),
-    repetition_penalty: float = Form(1.5),
-    convert_style: bool = Form(False),
-    anonymization_only: bool = Form(False),
-    target_bpm: Optional[float] = Form(None),
-    bpm_stretch: bool = Form(True),
-    cadence_mode: str = Form("none"),
-    music_key: str = Form("A minor"),
-    retune_ms: float = Form(0.0),
-    vibrato_cents: float = Form(0.0),
-    drift_cents: float = Form(8.0),
-    octave_shift: int = Form(0),
-    melody_midi: Optional[UploadFile] = File(None),
-    grid_quantize: bool = Form(False),
-    grid_subdivision: int = Form(4),
-    grid_strength: float = Form(1.0),
-    fx_preset: str = Form("none"),
-    fx_chain: str = Form(""),
-    trim_output: bool = Form(True),
-    normalize_output: bool = Form(False),
-):
-    source_path = _write_upload_to_temp(source_audio)
-    try:
-        effects = _resolve_fx(fx_preset, fx_chain, target_bpm)
-        source_path, target_path = await _prepare_common(
-            target_audio, source_path, cadence_mode, music_key, retune_ms,
-            vibrato_cents, drift_cents, octave_shift, melody_midi,
-            target_bpm, bpm_stretch, grid_quantize, grid_subdivision, grid_strength,
-        )
-    except ValueError as e:
-        job_status.set_stage(None)
-        _cleanup_paths(source_path)
-        return JSONResponse(status_code=400, content={"error": str(e)})
-
-    chunk_gen = _run_v2(
-        source_path=source_path,
-        target_path=target_path,
-        diffusion_steps=diffusion_steps,
-        length_adjust=length_adjust,
-        intelligibility_cfg_rate=intelligibility_cfg_rate,
-        similarity_cfg_rate=similarity_cfg_rate,
-        top_p=top_p,
-        temperature=temperature,
-        repetition_penalty=repetition_penalty,
-        convert_style=convert_style,
-        anonymization_only=anonymization_only,
-    )
-
-    result = _respond(chunk_gen, effects, trim_output, normalize_output)
-    if isinstance(result, StreamingResponse):
-        return result
-    wav = await asyncio.to_thread(result)
-    return Response(content=wav, media_type="audio/wav")
-
-
-@app.post("/v2/convert_text")
-async def convert_v2_text(
-    text: str = Form(...),
-    target_audio: UploadFile = File(...),
-    tts_voice: str = Form("en-US-GuyNeural"),
-    tts_engine: str = Form("edge"),
-    diffusion_steps: int = Form(30),
-    length_adjust: float = Form(1.0),
-    intelligibility_cfg_rate: float = Form(0.7, alias="intelligebility_cfg_rate"),
-    similarity_cfg_rate: float = Form(0.7),
-    top_p: float = Form(0.7),
-    temperature: float = Form(0.7),
-    repetition_penalty: float = Form(1.5),
-    convert_style: bool = Form(False),
-    anonymization_only: bool = Form(False),
-    target_bpm: Optional[float] = Form(None),
-    bpm_stretch: bool = Form(True),
-    cadence_mode: str = Form("none"),
-    music_key: str = Form("A minor"),
-    retune_ms: float = Form(0.0),
-    vibrato_cents: float = Form(0.0),
-    drift_cents: float = Form(8.0),
-    octave_shift: int = Form(0),
-    melody_midi: Optional[UploadFile] = File(None),
-    grid_quantize: bool = Form(False),
-    grid_subdivision: int = Form(4),
-    grid_strength: float = Form(1.0),
-    fx_preset: str = Form("none"),
-    fx_chain: str = Form(""),
-    trim_output: bool = Form(True),
-    normalize_output: bool = Form(False),
-):
-    pre_target_path = None
-    try:
-        effects = _resolve_fx(fx_preset, fx_chain, target_bpm)
-        if tts_engine == "chatterbox":
-            # Prep the reference early so Chatterbox can clone it as the
-            # TTS voice — the source enters Seed-VC already near the target.
-            pre_target_path = await asyncio.to_thread(_prepare_reference, target_audio)
-        source_path = await _generate_tts(
-            text, tts_voice, engine=tts_engine, prompt_path=pre_target_path
-        )
-    except ValueError as e:
-        job_status.set_stage(None)
-        _cleanup_paths(pre_target_path)
-        return JSONResponse(status_code=400, content={"error": str(e)})
-    except Exception as e:
-        job_status.set_stage(None)
-        _cleanup_paths(pre_target_path)
-        return JSONResponse(status_code=400, content={"error": f"TTS failed: {e}"})
-
-    try:
-        source_path, target_path = await _prepare_common(
-            target_audio, source_path, cadence_mode, music_key, retune_ms,
-            vibrato_cents, drift_cents, octave_shift, melody_midi,
-            target_bpm, bpm_stretch, grid_quantize, grid_subdivision, grid_strength,
-            pre_target_path=pre_target_path,
-        )
-    except ValueError as e:
-        job_status.set_stage(None)
-        _cleanup_paths(source_path, pre_target_path)
-        return JSONResponse(status_code=400, content={"error": str(e)})
-
-    chunk_gen = _run_v2(
-        source_path=source_path,
-        target_path=target_path,
-        diffusion_steps=diffusion_steps,
-        length_adjust=length_adjust,
-        intelligibility_cfg_rate=intelligibility_cfg_rate,
-        similarity_cfg_rate=similarity_cfg_rate,
-        top_p=top_p,
-        temperature=temperature,
-        repetition_penalty=repetition_penalty,
-        convert_style=convert_style,
-        anonymization_only=anonymization_only,
     )
 
     result = _respond(chunk_gen, effects, trim_output, normalize_output)
