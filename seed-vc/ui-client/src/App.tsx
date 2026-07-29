@@ -65,7 +65,7 @@ const defaultMusicality: MusicalityParams = {
   fx_preset: 'none',
   trim_output: true,
   normalize_output: false, // dry stems — level decisions belong in the DAW
-  debug_stems: false,
+  debug_stems: true, // auto-save all pipeline stages while dialing in quality
 };
 
 const FX_PRESETS = [
@@ -114,12 +114,18 @@ async function readError(res: Response): Promise<string> {
   return `Conversion failed (HTTP ${res.status})`;
 }
 
-async function streamToUrl(res: Response, onStatus?: (s: string) => void): Promise<string> {
+interface ConvertResult {
+  url: string;
+  savedTo: string | null;
+}
+
+async function streamToUrl(res: Response, onStatus?: (s: string) => void): Promise<ConvertResult> {
   const contentType = res.headers.get('content-type') || 'audio/wav';
+  const savedTo = res.headers.get('X-Saved-To');
   const reader = res.body?.getReader();
   if (!reader) {
     const blob = await res.blob();
-    return URL.createObjectURL(blob);
+    return { url: URL.createObjectURL(blob), savedTo };
   }
   const chunks: Uint8Array[] = [];
   let received = 0;
@@ -133,7 +139,7 @@ async function streamToUrl(res: Response, onStatus?: (s: string) => void): Promi
     }
   }
   const blob = new Blob(chunks as BlobPart[], { type: contentType });
-  return URL.createObjectURL(blob);
+  return { url: URL.createObjectURL(blob), savedTo };
 }
 
 async function convert(
@@ -145,7 +151,7 @@ async function convert(
   inputMode: InputMode,
   inputText: string,
   onStatus?: (s: string) => void,
-): Promise<string> {
+): Promise<ConvertResult> {
   const form = new FormData();
   form.append('target_audio', target);
   form.append('diffusion_steps', String(voice.diffusion_steps));
@@ -242,7 +248,7 @@ export default function App() {
   const [m, setMusicality] = useState<MusicalityParams>(defaultMusicality);
   const [melodyMidi, setMelodyMidi] = useState<File | null>(null);
   const [outputUrl, setOutputUrl] = useState<string | null>(null);
-  const [outputIsZip, setOutputIsZip] = useState(false);
+  const [savedTo, setSavedTo] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string>('Ready');
@@ -299,13 +305,13 @@ export default function App() {
     setStatus('Starting…');
     setLoading(true);
     try {
-      const url = await convert(
+      const result = await convert(
         source?.file || null, reference.file, voice, m, melodyMidi,
         inputMode, inputText, setStatus,
       );
-      setOutputUrl(url);
-      setOutputIsZip(m.debug_stems);
-      setStatus(m.debug_stems ? '4 stages zipped' : 'Done');
+      setOutputUrl(result.url);
+      setSavedTo(result.savedTo);
+      setStatus('Done');
     } catch (e: any) {
       setError(e?.message || 'Failed to convert');
       setStatus('Failed');
@@ -581,7 +587,7 @@ export default function App() {
           <div className="control-row">
             <label className="label">Debug stems</label>
             <Switch checked={m.debug_stems} onChange={(v) => setM({ debug_stems: v })} />
-            <span className="hint">Returns a ZIP of every stage: raw TTS → cadence → converted → final. Pinpoint where quality drops.</span>
+            <span className="hint">Auto-saves every stage (raw TTS → cadence → converted → final) as WAVs in the outputs folder.</span>
           </div>
           <p className="hint">Mixing belongs in the DAW — presets are for quick previews.</p>
         </Chip>
@@ -615,16 +621,15 @@ export default function App() {
         <div className="outbar">
           <div className="outbar__row">
             <span className="badge">{status}</span>
-            <a className="button" href={outputUrl}
-              download={outputIsZip ? 'vocal-stems.zip' : 'vocal-stem.wav'}>
-              {outputIsZip ? 'Download stems (ZIP)' : 'Download WAV'}
-            </a>
-            <button className="button" onClick={() => { setOutputUrl(null); setOutputIsZip(false); }}>Clear</button>
+            <a className="button" href={outputUrl} download="vocal-stem.wav">Download WAV</a>
+            <button className="button" onClick={() => { setOutputUrl(null); setSavedTo(null); }}>Clear</button>
           </div>
-          {outputIsZip ? (
-            <p className="hint">01 raw TTS · 02 after cadence/grid · 03 after conversion · 04 final. The stage where enunciation drops is your culprit.</p>
-          ) : (
-            <audio controls src={outputUrl} />
+          <audio controls src={outputUrl} />
+          {savedTo && (
+            <p className="hint">
+              Saved to <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--ink-muted)', userSelect: 'all' }}>{savedTo}</span>
+              {m.debug_stems && ' — stages 01–03 + final.wav inside. The stage where quality drops is your culprit.'}
+            </p>
           )}
         </div>
       )}

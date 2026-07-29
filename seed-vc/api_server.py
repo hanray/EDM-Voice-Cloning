@@ -3,7 +3,6 @@ import json
 import os
 import re
 import tempfile
-import zipfile
 import asyncio
 from typing import Generator, Optional
 
@@ -265,6 +264,26 @@ def _postprocess_full(
     return buffer.getvalue()
 
 
+# Every generation auto-saves here (final + debug stages) so outputs are
+# always findable on disk instead of hiding in the browser's Downloads.
+OUTPUT_ROOT = os.path.normpath(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "outputs")
+)
+
+
+def _save_session_outputs(stems: Optional[dict], final_wav: bytes) -> str:
+    from datetime import datetime
+
+    session_dir = os.path.join(OUTPUT_ROOT, datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
+    os.makedirs(session_dir, exist_ok=True)
+    for name, data in (stems or {}).items():
+        with open(os.path.join(session_dir, name), "wb") as f:
+            f.write(data)
+    with open(os.path.join(session_dir, "final.wav"), "wb") as f:
+        f.write(final_wav)
+    return session_dir
+
+
 def _normalize_lyrics(text: str) -> str:
     """Strip mid-phrase punctuation that makes TTS pause/slur (user-verified:
     removing commas improves enunciation). Sentence enders are kept."""
@@ -277,36 +296,30 @@ def _read_bytes(path: str) -> bytes:
         return f.read()
 
 
-def _zip_stems(stems: dict) -> bytes:
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as z:
-        for name, data in stems.items():
-            z.writestr(name, data)
-    return buf.getvalue()
-
-
-async def _respond_debug(chunk_gen, stems: dict, effects, trim_output, normalize_output):
-    """Debug-stems path: buffer the conversion, add raw + post stages, zip.
-    Lets the user hear exactly which pipeline station degrades enunciation."""
+async def _finish_and_save(chunk_gen, stems: Optional[dict], effects, trim_output, normalize_output):
+    """Buffer the conversion, post-process, auto-save to OUTPUT_ROOT, and
+    return the final WAV with the save location in an X-Saved-To header.
+    When stems is a dict, the intermediate stages land in the same folder —
+    plain WAVs, DAW-ready, no zip hunting."""
     def _build():
         chunks = list(chunk_gen)
         audio, sr = _decode_wav_chunks(chunks)
-        raw = io.BytesIO()
-        sf.write(raw, audio, sr, subtype="PCM_16", format="WAV")
-        stems["03_converted_raw.wav"] = raw.getvalue()
+        if stems is not None:
+            raw = io.BytesIO()
+            sf.write(raw, audio, sr, subtype="PCM_16", format="WAV")
+            stems["03_converted_raw.wav"] = raw.getvalue()
         try:
-            stems["04_final.wav"] = _postprocess_full(
-                audio, sr, effects, trim_output, normalize_output
-            )
+            final = _postprocess_full(audio, sr, effects, trim_output, normalize_output)
         finally:
             job_status.set_stage(None)
-        return _zip_stems(stems)
+        saved_dir = _save_session_outputs(stems, final)
+        return final, saved_dir
 
-    data = await asyncio.to_thread(_build)
+    wav, saved_dir = await asyncio.to_thread(_build)
     return Response(
-        content=data,
-        media_type="application/zip",
-        headers={"Content-Disposition": "attachment; filename=vocal-stems.zip"},
+        content=wav,
+        media_type="audio/wav",
+        headers={"X-Saved-To": saved_dir},
     )
 
 
@@ -335,23 +348,6 @@ def _run_v1(source_path: str, target_path: str, **kwargs):
         finally:
             job_status.set_stage(None)
             _cleanup_paths(source_path, target_path)
-
-
-def _respond(chunk_gen, effects, trim_output, normalize_output):
-    """Stream raw chunks when no post-processing is needed; otherwise buffer
-    the full conversion, apply output hygiene + FX, and return one WAV."""
-    if not (effects or trim_output or normalize_output):
-        return StreamingResponse(chunk_gen, media_type="audio/wav")
-
-    def _buffered():
-        chunks = list(chunk_gen)
-        audio, sr = _decode_wav_chunks(chunks)
-        try:
-            return _postprocess_full(audio, sr, effects, trim_output, normalize_output)
-        finally:
-            job_status.set_stage(None)
-
-    return _buffered
 
 
 @app.get("/health")
@@ -486,14 +482,9 @@ async def convert_v1(
         pitch_shift=pitch_shift,
     )
 
-    if debug_stems:
-        return await _respond_debug(chunk_gen, stems, effects, trim_output, normalize_output)
-
-    result = _respond(chunk_gen, effects, trim_output, normalize_output)
-    if isinstance(result, StreamingResponse):
-        return result
-    wav = await asyncio.to_thread(result)
-    return Response(content=wav, media_type="audio/wav")
+    return await _finish_and_save(
+        chunk_gen, stems if debug_stems else None, effects, trim_output, normalize_output
+    )
 
 
 @app.post("/v1/convert_text")
@@ -578,14 +569,9 @@ async def convert_v1_text(
         pitch_shift=pitch_shift,
     )
 
-    if debug_stems:
-        return await _respond_debug(chunk_gen, stems, effects, trim_output, normalize_output)
-
-    result = _respond(chunk_gen, effects, trim_output, normalize_output)
-    if isinstance(result, StreamingResponse):
-        return result
-    wav = await asyncio.to_thread(result)
-    return Response(content=wav, media_type="audio/wav")
+    return await _finish_and_save(
+        chunk_gen, stems if debug_stems else None, effects, trim_output, normalize_output
+    )
 
 
 if __name__ == "__main__":

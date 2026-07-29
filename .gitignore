@@ -30,3 +30,4 @@ Thumbs.db
 seed-vc/report_*.json
 seed-vc/reports/
 test_outputs/
+outputs/
