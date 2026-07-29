@@ -13,6 +13,7 @@ interface VoiceParams {
   model_mode: 'voice' | 'singing';
   tts_voice: string;
   edge_fallback: boolean;
+  smooth_punctuation: boolean;
 }
 
 interface MusicalityParams {
@@ -31,6 +32,7 @@ interface MusicalityParams {
   fx_preset: string;
   trim_output: boolean;
   normalize_output: boolean;
+  debug_stems: boolean;
 }
 
 const defaultVoice: VoiceParams = {
@@ -42,11 +44,13 @@ const defaultVoice: VoiceParams = {
   model_mode: 'singing',
   tts_voice: 'en-US-GuyNeural',
   edge_fallback: false,
+  smooth_punctuation: true,
 };
 
 const defaultMusicality: MusicalityParams = {
-  // Chant by default: cloning copies the voice, not the melody.
-  cadence_mode: 'chant',
+  // Natural by default while enunciation is being dialed in — the user
+  // A/Bs cadence per take. Chant is one chip-click away.
+  cadence_mode: 'none',
   key_root: 'A',
   key_scale: 'minor',
   retune_ms: 0,
@@ -61,6 +65,7 @@ const defaultMusicality: MusicalityParams = {
   fx_preset: 'none',
   trim_output: true,
   normalize_output: false, // dry stems — level decisions belong in the DAW
+  debug_stems: false,
 };
 
 const FX_PRESETS = [
@@ -165,6 +170,7 @@ async function convert(
   form.append('fx_preset', m.fx_preset);
   form.append('trim_output', String(m.trim_output));
   form.append('normalize_output', String(m.normalize_output));
+  form.append('debug_stems', String(m.debug_stems));
   if (m.cadence_mode === 'melody' && midi) form.append('melody_midi', midi);
 
   let endpoint = '/api/v1/convert';
@@ -173,6 +179,7 @@ async function convert(
     form.append('text', inputText);
     form.append('tts_engine', voice.edge_fallback ? 'edge' : 'chatterbox');
     form.append('tts_voice', voice.tts_voice);
+    form.append('smooth_punctuation', String(voice.smooth_punctuation));
   } else {
     if (!source) throw new Error('Source audio missing');
     form.append('source_audio', source);
@@ -235,6 +242,7 @@ export default function App() {
   const [m, setMusicality] = useState<MusicalityParams>(defaultMusicality);
   const [melodyMidi, setMelodyMidi] = useState<File | null>(null);
   const [outputUrl, setOutputUrl] = useState<string | null>(null);
+  const [outputIsZip, setOutputIsZip] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string>('Ready');
@@ -296,7 +304,8 @@ export default function App() {
         inputMode, inputText, setStatus,
       );
       setOutputUrl(url);
-      setStatus('Done');
+      setOutputIsZip(m.debug_stems);
+      setStatus(m.debug_stems ? '4 stages zipped' : 'Done');
     } catch (e: any) {
       setError(e?.message || 'Failed to convert');
       setStatus('Failed');
@@ -500,6 +509,11 @@ export default function App() {
               <label className="label">Edge fallback</label>
               <Switch checked={voice.edge_fallback} onChange={(v) => setV({ edge_fallback: v })} />
             </div>
+            <div className="control-row">
+              <label className="label">Smooth punct.</label>
+              <Switch checked={voice.smooth_punctuation} onChange={(v) => setV({ smooth_punctuation: v })} />
+              <span className="hint">Strips commas before TTS — cleaner enunciation.</span>
+            </div>
             {voice.edge_fallback ? (
               <div className="control-row">
                 <label className="label">Voice</label>
@@ -564,6 +578,11 @@ export default function App() {
             <Switch checked={m.normalize_output} onChange={(v) => setM({ normalize_output: v })} />
             <span className="hint">Preview loudness, clip-safe. Off = untouched stem.</span>
           </div>
+          <div className="control-row">
+            <label className="label">Debug stems</label>
+            <Switch checked={m.debug_stems} onChange={(v) => setM({ debug_stems: v })} />
+            <span className="hint">Returns a ZIP of every stage: raw TTS → cadence → converted → final. Pinpoint where quality drops.</span>
+          </div>
           <p className="hint">Mixing belongs in the DAW — presets are for quick previews.</p>
         </Chip>
       </div>
@@ -596,10 +615,17 @@ export default function App() {
         <div className="outbar">
           <div className="outbar__row">
             <span className="badge">{status}</span>
-            <a className="button" href={outputUrl} download="vocal-stem.wav">Download WAV</a>
-            <button className="button" onClick={() => setOutputUrl(null)}>Clear</button>
+            <a className="button" href={outputUrl}
+              download={outputIsZip ? 'vocal-stems.zip' : 'vocal-stem.wav'}>
+              {outputIsZip ? 'Download stems (ZIP)' : 'Download WAV'}
+            </a>
+            <button className="button" onClick={() => { setOutputUrl(null); setOutputIsZip(false); }}>Clear</button>
           </div>
-          <audio controls src={outputUrl} />
+          {outputIsZip ? (
+            <p className="hint">01 raw TTS · 02 after cadence/grid · 03 after conversion · 04 final. The stage where enunciation drops is your culprit.</p>
+          ) : (
+            <audio controls src={outputUrl} />
+          )}
         </div>
       )}
     </div>

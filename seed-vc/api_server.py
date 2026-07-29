@@ -1,7 +1,9 @@
 import io
 import json
 import os
+import re
 import tempfile
+import zipfile
 import asyncio
 from typing import Generator, Optional
 
@@ -263,6 +265,51 @@ def _postprocess_full(
     return buffer.getvalue()
 
 
+def _normalize_lyrics(text: str) -> str:
+    """Strip mid-phrase punctuation that makes TTS pause/slur (user-verified:
+    removing commas improves enunciation). Sentence enders are kept."""
+    text = re.sub(r"[,;:]+", " ", text)
+    return re.sub(r"\s{2,}", " ", text).strip()
+
+
+def _read_bytes(path: str) -> bytes:
+    with open(path, "rb") as f:
+        return f.read()
+
+
+def _zip_stems(stems: dict) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as z:
+        for name, data in stems.items():
+            z.writestr(name, data)
+    return buf.getvalue()
+
+
+async def _respond_debug(chunk_gen, stems: dict, effects, trim_output, normalize_output):
+    """Debug-stems path: buffer the conversion, add raw + post stages, zip.
+    Lets the user hear exactly which pipeline station degrades enunciation."""
+    def _build():
+        chunks = list(chunk_gen)
+        audio, sr = _decode_wav_chunks(chunks)
+        raw = io.BytesIO()
+        sf.write(raw, audio, sr, subtype="PCM_16", format="WAV")
+        stems["03_converted_raw.wav"] = raw.getvalue()
+        try:
+            stems["04_final.wav"] = _postprocess_full(
+                audio, sr, effects, trim_output, normalize_output
+            )
+        finally:
+            job_status.set_stage(None)
+        return _zip_stems(stems)
+
+    data = await asyncio.to_thread(_build)
+    return Response(
+        content=data,
+        media_type="application/zip",
+        headers={"Content-Disposition": "attachment; filename=vocal-stems.zip"},
+    )
+
+
 def _cleanup_paths(*paths: Optional[str]) -> None:
     for p in paths:
         if p and os.path.exists(p):
@@ -408,15 +455,21 @@ async def convert_v1(
     fx_chain: str = Form(""),
     trim_output: bool = Form(True),
     normalize_output: bool = Form(False),
+    debug_stems: bool = Form(False),
 ):
+    stems: dict = {}
     source_path = _write_upload_to_temp(source_audio)
     try:
         effects = _resolve_fx(fx_preset, fx_chain, target_bpm)
+        if debug_stems:
+            stems["01_source_raw.wav"] = _read_bytes(source_path)
         source_path, target_path = await _prepare_common(
             target_audio, source_path, cadence_mode, music_key, retune_ms,
             vibrato_cents, drift_cents, octave_shift, melody_midi,
             target_bpm, bpm_stretch, grid_quantize, grid_subdivision, grid_strength,
         )
+        if debug_stems:
+            stems["02_source_musical.wav"] = _read_bytes(source_path)
     except ValueError as e:
         job_status.set_stage(None)
         _cleanup_paths(source_path)
@@ -432,6 +485,9 @@ async def convert_v1(
         auto_f0_adjust=auto_f0_adjust,
         pitch_shift=pitch_shift,
     )
+
+    if debug_stems:
+        return await _respond_debug(chunk_gen, stems, effects, trim_output, normalize_output)
 
     result = _respond(chunk_gen, effects, trim_output, normalize_output)
     if isinstance(result, StreamingResponse):
@@ -468,8 +524,13 @@ async def convert_v1_text(
     fx_chain: str = Form(""),
     trim_output: bool = Form(True),
     normalize_output: bool = Form(False),
+    debug_stems: bool = Form(False),
+    smooth_punctuation: bool = Form(True),
 ):
+    stems: dict = {}
     pre_target_path = None
+    if smooth_punctuation:
+        text = _normalize_lyrics(text)
     try:
         effects = _resolve_fx(fx_preset, fx_chain, target_bpm)
         if tts_engine == "chatterbox":
@@ -488,6 +549,9 @@ async def convert_v1_text(
         _cleanup_paths(pre_target_path)
         return JSONResponse(status_code=400, content={"error": f"TTS failed: {e}"})
 
+    if debug_stems:
+        stems["01_source_raw.wav"] = _read_bytes(source_path)
+
     try:
         source_path, target_path = await _prepare_common(
             target_audio, source_path, cadence_mode, music_key, retune_ms,
@@ -500,6 +564,9 @@ async def convert_v1_text(
         _cleanup_paths(source_path, pre_target_path)
         return JSONResponse(status_code=400, content={"error": str(e)})
 
+    if debug_stems:
+        stems["02_source_musical.wav"] = _read_bytes(source_path)
+
     chunk_gen = _run_v1(
         source_path=source_path,
         target_path=target_path,
@@ -510,6 +577,9 @@ async def convert_v1_text(
         auto_f0_adjust=auto_f0_adjust,
         pitch_shift=pitch_shift,
     )
+
+    if debug_stems:
+        return await _respond_debug(chunk_gen, stems, effects, trim_output, normalize_output)
 
     result = _respond(chunk_gen, effects, trim_output, normalize_output)
     if isinstance(result, StreamingResponse):
