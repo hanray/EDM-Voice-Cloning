@@ -27,3 +27,7 @@ pyyaml
 python-dotenv
 watchdog
 edge-tts
+# Musicality / production layer
+pyworld
+pedalboard
+mido
