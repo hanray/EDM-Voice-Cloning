@@ -1,3 +1,4 @@
+import io
 import os
 os.environ['HF_HUB_CACHE'] = './checkpoints/hf_cache'
 import gradio as gr
@@ -8,7 +9,7 @@ from modules.commons import build_model, load_checkpoint, recursive_munch, str2b
 import yaml
 from hf_utils import load_custom_model_from_hf
 import numpy as np
-from pydub import AudioSegment
+import soundfile as sf
 import argparse
 # Load model and configuration
 
@@ -242,6 +243,7 @@ overlap_frame_len = 16
 def voice_conversion(source, target, diffusion_steps, length_adjust, inference_cfg_rate, auto_f0_adjust, pitch_shift):
     inference_module = model_f0
     mel_fn = to_mel_f0
+    print(f"[format] internal processing: WAV/PCM @ {sr} Hz")
     # Load audio
     source_audio = librosa.load(source, sr=sr)[0]
     ref_audio = librosa.load(target, sr=sr)[0]
@@ -348,32 +350,29 @@ def voice_conversion(source, target, diffusion_steps, length_adjust, inference_c
                 output_wave = vc_wave[0].cpu().numpy()
                 generated_wave_chunks.append(output_wave)
                 output_wave = (output_wave * 32768.0).astype(np.int16)
-                mp3_bytes = AudioSegment(
-                    output_wave.tobytes(), frame_rate=sr,
-                    sample_width=output_wave.dtype.itemsize, channels=1
-                ).export(format="mp3", bitrate=bitrate).read()
-                yield mp3_bytes, (sr, np.concatenate(generated_wave_chunks))
+                buffer = io.BytesIO()
+                sf.write(buffer, output_wave, sr, subtype="PCM_16", format="WAV")
+                wav_bytes = buffer.getvalue()
+                yield wav_bytes, (sr, np.concatenate(generated_wave_chunks))
                 break
             output_wave = vc_wave[0, :-overlap_wave_len].cpu().numpy()
             generated_wave_chunks.append(output_wave)
             previous_chunk = vc_wave[0, -overlap_wave_len:]
             processed_frames += vc_target.size(2) - overlap_frame_len
             output_wave = (output_wave * 32768.0).astype(np.int16)
-            mp3_bytes = AudioSegment(
-                output_wave.tobytes(), frame_rate=sr,
-                sample_width=output_wave.dtype.itemsize, channels=1
-            ).export(format="mp3", bitrate=bitrate).read()
-            yield mp3_bytes, None
+            buffer = io.BytesIO()
+            sf.write(buffer, output_wave, sr, subtype="PCM_16", format="WAV")
+            wav_bytes = buffer.getvalue()
+            yield wav_bytes, None
         elif is_last_chunk:
             output_wave = crossfade(previous_chunk.cpu().numpy(), vc_wave[0].cpu().numpy(), overlap_wave_len)
             generated_wave_chunks.append(output_wave)
             processed_frames += vc_target.size(2) - overlap_frame_len
             output_wave = (output_wave * 32768.0).astype(np.int16)
-            mp3_bytes = AudioSegment(
-                output_wave.tobytes(), frame_rate=sr,
-                sample_width=output_wave.dtype.itemsize, channels=1
-            ).export(format="mp3", bitrate=bitrate).read()
-            yield mp3_bytes, (sr, np.concatenate(generated_wave_chunks))
+            buffer = io.BytesIO()
+            sf.write(buffer, output_wave, sr, subtype="PCM_16", format="WAV")
+            wav_bytes = buffer.getvalue()
+            yield wav_bytes, (sr, np.concatenate(generated_wave_chunks))
             break
         else:
             output_wave = crossfade(previous_chunk.cpu().numpy(), vc_wave[0, :-overlap_wave_len].cpu().numpy(), overlap_wave_len)
@@ -381,11 +380,10 @@ def voice_conversion(source, target, diffusion_steps, length_adjust, inference_c
             previous_chunk = vc_wave[0, -overlap_wave_len:]
             processed_frames += vc_target.size(2) - overlap_frame_len
             output_wave = (output_wave * 32768.0).astype(np.int16)
-            mp3_bytes = AudioSegment(
-                output_wave.tobytes(), frame_rate=sr,
-                sample_width=output_wave.dtype.itemsize, channels=1
-            ).export(format="mp3", bitrate=bitrate).read()
-            yield mp3_bytes, None
+            buffer = io.BytesIO()
+            sf.write(buffer, output_wave, sr, subtype="PCM_16", format="WAV")
+            wav_bytes = buffer.getvalue()
+            yield wav_bytes, None
 
 
 def main(args):
@@ -419,7 +417,7 @@ def main(args):
                  "examples/reference/trump_0.wav", 50, 1.0, 0.7, False, -12],
                 ]
 
-    outputs = [gr.Audio(label="Stream Output Audio / 流式输出", streaming=True, format='mp3'),
+    outputs = [gr.Audio(label="Stream Output Audio / 流式输出", streaming=True, format='wav'),
                gr.Audio(label="Full Output Audio / 完整输出", streaming=False, format='wav')]
 
     gr.Interface(fn=voice_conversion,

@@ -41,7 +41,8 @@ async def _generate_tts(text: str, voice: str = "en-US-GuyNeural") -> str:
     fd, path = tempfile.mkstemp(suffix=".mp3")
     os.close(fd)
     await communicate.save(path)
-    return path
+    # Convert to wav immediately for downstream processing
+    return _ensure_wav(path)
 
 
 def load_v2_models():
@@ -71,7 +72,31 @@ def _write_upload_to_temp(upload: UploadFile) -> str:
     fd, path = tempfile.mkstemp(suffix=suffix)
     with os.fdopen(fd, "wb") as f:
         f.write(upload.file.read())
-    return path
+    return _ensure_wav(path)
+
+
+def _ensure_wav(path: str) -> str:
+    """If an mp3 was uploaded, convert once to wav and use that path downstream."""
+    if not path or path.lower().endswith(".wav"):
+        return path
+
+    new_fd, wav_path = tempfile.mkstemp(suffix=".wav")
+    os.close(new_fd)
+    try:
+        audio, sr = librosa.load(path, sr=None, mono=True)
+        sf.write(wav_path, audio, sr)
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        return wav_path
+    except Exception:
+        # If conversion fails, fall back to original path
+        try:
+            os.remove(wav_path)
+        except OSError:
+            pass
+        return path
 
 
 def _apply_bpm_adjustment(audio_path: str, target_bpm: Optional[float]) -> str:
@@ -180,7 +205,7 @@ async def convert_v1(
         pitch_shift=pitch_shift,
     )
 
-    return StreamingResponse(stream, media_type="audio/mpeg")
+    return StreamingResponse(stream, media_type="audio/wav")
 
 
 @app.post("/v1/convert_text")
@@ -216,7 +241,7 @@ async def convert_v1_text(
         pitch_shift=pitch_shift,
     )
 
-    return StreamingResponse(stream, media_type="audio/mpeg")
+    return StreamingResponse(stream, media_type="audio/wav")
 
 
 @app.post("/v2/convert")
@@ -253,7 +278,7 @@ async def convert_v2(
         anonymization_only=anonymization_only,
     )
 
-    return StreamingResponse(stream, media_type="audio/mpeg")
+    return StreamingResponse(stream, media_type="audio/wav")
 
 
 @app.post("/v2/convert_text")
@@ -294,7 +319,7 @@ async def convert_v2_text(
         anonymization_only=anonymization_only,
     )
 
-    return StreamingResponse(stream, media_type="audio/mpeg")
+    return StreamingResponse(stream, media_type="audio/wav")
 
 
 if __name__ == "__main__":

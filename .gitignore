@@ -26,3 +26,6 @@ seed-vc/ui-client/dist/
 # System files
 .DS_Store
 Thumbs.db
+# Generated reports
+seed-vc/report_*.json
+seed-vc/reports/

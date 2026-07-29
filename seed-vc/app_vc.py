@@ -8,11 +8,11 @@ from modules.commons import build_model, load_checkpoint, recursive_munch, str2b
 import yaml
 from hf_utils import load_custom_model_from_hf
 import numpy as np
-from pydub import AudioSegment
 import argparse
 import edge_tts
 import asyncio
 import tempfile
+from report_utils import write_generation_report
 
 # Model cache for lazy loading
 model_cache = {
@@ -346,6 +346,58 @@ def voice_conversion(source, target, diffusion_steps, length_adjust, inference_c
     
     inference_module = model_cache["model"]
     mel_fn = model_cache["to_mel"]
+
+    report_written = False
+
+    def log_report_once(final_sr, output_path=None):
+        nonlocal report_written
+        if report_written:
+            return
+
+        inputs = {
+            "text": input_text if input_mode == "text" else None,
+            "audio_path": source,
+            "audio_filename": os.path.basename(source) if source else None,
+            "sample_rate": final_sr,
+        }
+
+        settings = {
+            "diffusion_steps": diffusion_steps,
+            "length_adjust": length_adjust,
+            "inference_cfg_rate": inference_cfg_rate,
+            "f0_condition": f0_condition,
+            "auto_f0_adjust": auto_f0_adjust,
+            "pitch_shift": pitch_shift,
+            "target_bpm": target_bpm,
+            "input_mode": input_mode,
+            "tts_voice": tts_voice if input_mode == "text" else None,
+            "model_mode": model_mode,
+        }
+
+        outputs = {
+            "wav": output_path,
+            "mp3": None,
+            "wav_filename": os.path.basename(output_path) if output_path else None,
+            "mp3_filename": None,
+            "sample_rate": final_sr,
+        }
+
+        stages = [
+            "input_loaded",
+            "preprocessing",
+            "model_inference",
+            "vocoder",
+        ]
+
+        write_generation_report(
+            mode="tts" if input_mode == "text" else "voice_conversion_v1",
+            inputs=inputs,
+            settings=settings,
+            outputs=outputs,
+            stages_executed=stages,
+        )
+
+        report_written = True
     
     # Handle text input mode
     if input_mode == "text":
@@ -463,7 +515,9 @@ def voice_conversion(source, target, diffusion_steps, length_adjust, inference_c
             if is_last_chunk:
                 output_wave = vc_wave[0].cpu().numpy().astype(np.float32)
                 generated_wave_chunks.append(output_wave)
-                yield (sr, np.concatenate(generated_wave_chunks).astype(np.float32))
+                full_audio = np.concatenate(generated_wave_chunks).astype(np.float32)
+                log_report_once(sr)
+                yield (sr, full_audio)
                 break
             output_wave = vc_wave[0, :-overlap_wave_len].cpu().numpy().astype(np.float32)
             generated_wave_chunks.append(output_wave)
@@ -473,7 +527,9 @@ def voice_conversion(source, target, diffusion_steps, length_adjust, inference_c
             output_wave = crossfade(previous_chunk.cpu().numpy(), vc_wave[0].cpu().numpy(), overlap_wave_len).astype(np.float32)
             generated_wave_chunks.append(output_wave)
             processed_frames += vc_target.size(2) - overlap_frame_len
-            yield (sr, np.concatenate(generated_wave_chunks).astype(np.float32))
+            full_audio = np.concatenate(generated_wave_chunks).astype(np.float32)
+            log_report_once(sr)
+            yield (sr, full_audio)
             break
         else:
             output_wave = crossfade(previous_chunk.cpu().numpy(), vc_wave[0, :-overlap_wave_len].cpu().numpy(), overlap_wave_len).astype(np.float32)

@@ -1,8 +1,10 @@
+import io
+import os
 import torch
 import torchaudio
 import librosa
 import numpy as np
-from pydub import AudioSegment
+import soundfile as sf
 import yaml
 from modules.commons import build_model, load_checkpoint, recursive_munch
 from hf_utils import load_custom_model_from_hf
@@ -10,6 +12,7 @@ from modules.campplus.DTDNN import CAMPPlus
 from modules.bigvgan import bigvgan
 from modules.audio import mel_spectrogram
 from modules.rmvpe import RMVPE
+from report_utils import write_generation_report
 from transformers import AutoFeatureExtractor, WhisperModel
 
 class SeedVCWrapper:
@@ -43,6 +46,42 @@ class SeedVCWrapper:
         # Set streaming parameters
         self.overlap_frame_len = 16
         self.bitrate = "320k"
+
+    def _write_report(self, *, mode, source_path, target_path, sample_rate, settings, output_path, stream_output):
+        """Persist a single generation report JSON after each run."""
+        stages = [
+            "input_loaded",
+            "preprocessing",
+            "model_inference",
+            "vocoder",
+        ]
+        if stream_output:
+            stages.extend(["encoding", "streaming"])
+
+        inputs = {
+            "text": None,
+            "source_audio_path": source_path,
+            "reference_audio_path": target_path,
+            "source_filename": os.path.basename(source_path) if source_path else None,
+            "reference_filename": os.path.basename(target_path) if target_path else None,
+            "sample_rate": int(sample_rate) if sample_rate is not None else None,
+        }
+
+        outputs = {
+            "wav": output_path,
+            "mp3": None,
+            "wav_filename": os.path.basename(output_path) if output_path else None,
+            "mp3_filename": None,
+            "sample_rate": int(sample_rate) if sample_rate is not None else None,
+        }
+
+        write_generation_report(
+            mode=mode,
+            inputs=inputs,
+            settings=settings if settings is not None else {},
+            outputs=outputs,
+            stages_executed=stages,
+        )
         
     def _load_base_model(self):
         """Load the base DiT model for voice conversion."""
@@ -180,7 +219,7 @@ class SeedVCWrapper:
         Returns:
             Tuple of (processed_frames, previous_chunk, should_break, mp3_bytes, full_audio)
             where should_break indicates if processing should stop
-            mp3_bytes is the MP3 bytes if streaming, None otherwise
+            mp3_bytes is the WAV bytes if streaming, None otherwise
             full_audio is the full audio if this is the last chunk, None otherwise
         """
         mp3_bytes = None
@@ -193,10 +232,9 @@ class SeedVCWrapper:
                 
                 if stream_output:
                     output_wave_int16 = (output_wave * 32768.0).astype(np.int16)
-                    mp3_bytes = AudioSegment(
-                        output_wave_int16.tobytes(), frame_rate=sr,
-                        sample_width=output_wave_int16.dtype.itemsize, channels=1
-                    ).export(format="mp3", bitrate=self.bitrate).read()
+                    buffer = io.BytesIO()
+                    sf.write(buffer, output_wave_int16, sr, subtype="PCM_16", format="WAV")
+                    mp3_bytes = buffer.getvalue()
                     full_audio = (sr, np.concatenate(generated_wave_chunks))
                 else:
                     return processed_frames, previous_chunk, True, None, np.concatenate(generated_wave_chunks)
@@ -210,10 +248,9 @@ class SeedVCWrapper:
             
             if stream_output:
                 output_wave_int16 = (output_wave * 32768.0).astype(np.int16)
-                mp3_bytes = AudioSegment(
-                    output_wave_int16.tobytes(), frame_rate=sr,
-                    sample_width=output_wave_int16.dtype.itemsize, channels=1
-                ).export(format="mp3", bitrate=self.bitrate).read()
+                buffer = io.BytesIO()
+                sf.write(buffer, output_wave_int16, sr, subtype="PCM_16", format="WAV")
+                mp3_bytes = buffer.getvalue()
             
         elif is_last_chunk:
             output_wave = self.crossfade(previous_chunk.cpu().numpy(), vc_wave[0].cpu().numpy(), overlap_wave_len)
@@ -222,10 +259,9 @@ class SeedVCWrapper:
             
             if stream_output:
                 output_wave_int16 = (output_wave * 32768.0).astype(np.int16)
-                mp3_bytes = AudioSegment(
-                    output_wave_int16.tobytes(), frame_rate=sr,
-                    sample_width=output_wave_int16.dtype.itemsize, channels=1
-                ).export(format="mp3", bitrate=self.bitrate).read()
+                buffer = io.BytesIO()
+                sf.write(buffer, output_wave_int16, sr, subtype="PCM_16", format="WAV")
+                mp3_bytes = buffer.getvalue()
                 full_audio = (sr, np.concatenate(generated_wave_chunks))
             else:
                 return processed_frames, previous_chunk, True, None, np.concatenate(generated_wave_chunks)
@@ -240,10 +276,9 @@ class SeedVCWrapper:
             
             if stream_output:
                 output_wave_int16 = (output_wave * 32768.0).astype(np.int16)
-                mp3_bytes = AudioSegment(
-                    output_wave_int16.tobytes(), frame_rate=sr,
-                    sample_width=output_wave_int16.dtype.itemsize, channels=1
-                ).export(format="mp3", bitrate=self.bitrate).read()
+                buffer = io.BytesIO()
+                sf.write(buffer, output_wave_int16, sr, subtype="PCM_16", format="WAV")
+                mp3_bytes = buffer.getvalue()
                 
         return processed_frames, previous_chunk, False, mp3_bytes, full_audio
 
@@ -315,7 +350,7 @@ class SeedVCWrapper:
     @torch.inference_mode()
     def convert_voice(self, source, target, diffusion_steps=10, length_adjust=1.0,
                      inference_cfg_rate=0.7, f0_condition=False, auto_f0_adjust=True, 
-                     pitch_shift=0, stream_output=True):
+                     pitch_shift=0, stream_output=True, report_output_path=None):
         """
         Convert both timbre and voice from source to target.
         
@@ -342,6 +377,39 @@ class SeedVCWrapper:
         hop_length = 256 if not f0_condition else 512
         max_context_window = sr // hop_length * 30
         overlap_wave_len = self.overlap_frame_len * hop_length
+
+        print(f"[format] internal processing: WAV/PCM @ {sr} Hz")
+
+        report_written = False
+
+        def log_report_once():
+            nonlocal report_written
+            if report_written:
+                return
+
+            mode_label = "singing_v1" if f0_condition else "voice_conversion_v1"
+            settings = {
+                "diffusion_steps": diffusion_steps,
+                "length_adjust": length_adjust,
+                "inference_cfg_rate": inference_cfg_rate,
+                "f0_condition": f0_condition,
+                "auto_f0_adjust": auto_f0_adjust,
+                "pitch_shift": pitch_shift,
+                "target_sample_rate": sr,
+                "stream_output": stream_output,
+            }
+
+            self._write_report(
+                mode=mode_label,
+                source_path=source,
+                target_path=target,
+                sample_rate=sr,
+                settings=settings,
+                output_path=report_output_path,
+                stream_output=stream_output,
+            )
+
+            report_written = True
         
         # Load audio
         source_audio = librosa.load(source, sr=sr)[0]
@@ -457,14 +525,18 @@ class SeedVCWrapper:
                 last_progress = progress
 
             if stream_output and mp3_bytes is not None:
+                if full_audio is not None:
+                    log_report_once()
                 yield mp3_bytes, full_audio
 
             if should_break:
                 if not stream_output:
+                    log_report_once()
                     return full_audio
                 break
 
         if not stream_output:
+            log_report_once()
             return np.concatenate(generated_wave_chunks)
 
         # Final progress mark

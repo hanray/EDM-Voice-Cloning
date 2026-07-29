@@ -71,7 +71,7 @@ def main(args):
     ]
     
     outputs = [
-        gr.Audio(label="Stream Output Audio / 流式输出", streaming=True, format='mp3'),
+        gr.Audio(label="Stream Output Audio / 流式输出", streaming=True, format='wav'),
         gr.Audio(label="Full Output Audio / 完整输出", streaming=False, format='wav')
     ]
     

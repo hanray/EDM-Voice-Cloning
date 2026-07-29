@@ -1,9 +1,12 @@
+import io
+import os
 import torch
 import librosa
 import torchaudio
 import numpy as np
-from pydub import AudioSegment
+import soundfile as sf
 from hf_utils import load_custom_model_from_hf
+from report_utils import write_generation_report
 
 DEFAULT_REPO_ID = "Plachta/Seed-VC"
 DEFAULT_CFM_CHECKPOINT = "v2/cfm_small.pth"
@@ -51,6 +54,42 @@ class VoiceConversionWrapper(torch.nn.Module):
         self.dit_max_context_len = 30  # in seconds
         self.ar_max_content_len = 1500  # in num of narrow tokens
         self.compile_len = 87 * self.dit_max_context_len
+
+    def _write_report(self, *, mode, source_path, target_path, sample_rate, settings, output_path, stream_output):
+        """Persist a single generation report JSON after each V2 run."""
+        stages = [
+            "input_loaded",
+            "preprocessing",
+            "model_inference",
+            "vocoder",
+        ]
+        if stream_output:
+            stages.extend(["encoding", "streaming"])
+
+        inputs = {
+            "text": None,
+            "source_audio_path": source_path,
+            "reference_audio_path": target_path,
+            "source_filename": os.path.basename(source_path) if source_path else None,
+            "reference_filename": os.path.basename(target_path) if target_path else None,
+            "sample_rate": int(sample_rate) if sample_rate is not None else None,
+        }
+
+        outputs = {
+            "wav": output_path,
+            "mp3": None,
+            "wav_filename": os.path.basename(output_path) if output_path else None,
+            "mp3_filename": None,
+            "sample_rate": int(sample_rate) if sample_rate is not None else None,
+        }
+
+        write_generation_report(
+            mode=mode,
+            inputs=inputs,
+            settings=settings if settings is not None else {},
+            outputs=outputs,
+            stages_executed=stages,
+        )
 
     def forward_cfm(self, content_indices_wide, content_lens, mels, mel_lens, style_vectors):
         device = content_indices_wide.device
@@ -181,7 +220,7 @@ class VoiceConversionWrapper(torch.nn.Module):
         Returns:
             Tuple of (processed_frames, previous_chunk, should_break, mp3_bytes, full_audio)
             where should_break indicates if processing should stop
-            mp3_bytes is the MP3 bytes if streaming, None otherwise
+            mp3_bytes is the WAV bytes if streaming, None otherwise
             full_audio is the full audio if this is the last chunk, None otherwise
         """
         mp3_bytes = None
@@ -194,10 +233,9 @@ class VoiceConversionWrapper(torch.nn.Module):
 
                 if stream_output:
                     output_wave_int16 = (output_wave * 32768.0).astype(np.int16)
-                    mp3_bytes = AudioSegment(
-                        output_wave_int16.tobytes(), frame_rate=self.sr,
-                        sample_width=output_wave_int16.dtype.itemsize, channels=1
-                    ).export(format="mp3", bitrate=self.bitrate).read()
+                    buffer = io.BytesIO()
+                    sf.write(buffer, output_wave_int16, self.sr, subtype="PCM_16", format="WAV")
+                    mp3_bytes = buffer.getvalue()
                     full_audio = (self.sr, np.concatenate(generated_wave_chunks))
                 else:
                     return processed_frames, previous_chunk, True, None, np.concatenate(generated_wave_chunks)
@@ -211,10 +249,9 @@ class VoiceConversionWrapper(torch.nn.Module):
 
             if stream_output:
                 output_wave_int16 = (output_wave * 32768.0).astype(np.int16)
-                mp3_bytes = AudioSegment(
-                    output_wave_int16.tobytes(), frame_rate=self.sr,
-                    sample_width=output_wave_int16.dtype.itemsize, channels=1
-                ).export(format="mp3", bitrate=self.bitrate).read()
+                buffer = io.BytesIO()
+                sf.write(buffer, output_wave_int16, self.sr, subtype="PCM_16", format="WAV")
+                mp3_bytes = buffer.getvalue()
 
         elif is_last_chunk:
             output_wave = self.crossfade(previous_chunk.cpu().numpy(), vc_wave[0].cpu().numpy(), overlap_wave_len)
@@ -223,10 +260,9 @@ class VoiceConversionWrapper(torch.nn.Module):
 
             if stream_output:
                 output_wave_int16 = (output_wave * 32768.0).astype(np.int16)
-                mp3_bytes = AudioSegment(
-                    output_wave_int16.tobytes(), frame_rate=self.sr,
-                    sample_width=output_wave_int16.dtype.itemsize, channels=1
-                ).export(format="mp3", bitrate=self.bitrate).read()
+                buffer = io.BytesIO()
+                sf.write(buffer, output_wave_int16, self.sr, subtype="PCM_16", format="WAV")
+                mp3_bytes = buffer.getvalue()
                 full_audio = (self.sr, np.concatenate(generated_wave_chunks))
             else:
                 return processed_frames, previous_chunk, True, None, np.concatenate(generated_wave_chunks)
@@ -241,10 +277,9 @@ class VoiceConversionWrapper(torch.nn.Module):
 
             if stream_output:
                 output_wave_int16 = (output_wave * 32768.0).astype(np.int16)
-                mp3_bytes = AudioSegment(
-                    output_wave_int16.tobytes(), frame_rate=self.sr,
-                    sample_width=output_wave_int16.dtype.itemsize, channels=1
-                ).export(format="mp3", bitrate=self.bitrate).read()
+                buffer = io.BytesIO()
+                sf.write(buffer, output_wave_int16, self.sr, subtype="PCM_16", format="WAV")
+                mp3_bytes = buffer.getvalue()
                 
         return processed_frames, previous_chunk, False, mp3_bytes, full_audio
 
@@ -507,7 +542,8 @@ class VoiceConversionWrapper(torch.nn.Module):
             anonymization_only: bool = False,
             device: torch.device = torch.device("cuda"),
             dtype: torch.dtype = torch.float16,
-            stream_output: bool = True,
+                stream_output: bool = True,
+                report_output_path: str = None,
     ):
         """
         Convert voice with streaming support for long audio files.
@@ -533,6 +569,8 @@ class VoiceConversionWrapper(torch.nn.Module):
         # Load audio
         source_wave = librosa.load(source_audio_path, sr=self.sr)[0]
         target_wave = librosa.load(target_audio_path, sr=self.sr)[0]
+
+        print(f"[format] internal processing: WAV/PCM @ {self.sr} Hz")
         
         # Limit target audio to 25 seconds
         target_wave = target_wave[:self.sr * (self.dit_max_context_len - 5)]
@@ -555,6 +593,46 @@ class VoiceConversionWrapper(torch.nn.Module):
         # Set up chunk processing parameters
         max_context_window = self.sr // self.hop_size * self.dit_max_context_len
         overlap_wave_len = self.overlap_frame_len * self.hop_size
+
+        report_written = False
+
+        def log_report_once():
+            nonlocal report_written
+            if report_written:
+                return
+
+            if anonymization_only:
+                mode_label = "anonymization_v2"
+            elif convert_style:
+                mode_label = "style_conversion_v2"
+            else:
+                mode_label = "voice_conversion_v2"
+
+            settings = {
+                "diffusion_steps": diffusion_steps,
+                "length_adjust": length_adjust,
+                "intelligibility_cfg_rate": intelligibility_cfg_rate,
+                "similarity_cfg_rate": similarity_cfg_rate,
+                "top_p": top_p,
+                "temperature": temperature,
+                "repetition_penalty": repetition_penalty,
+                "convert_style": convert_style,
+                "anonymization_only": anonymization_only,
+                "target_sample_rate": self.sr,
+                "stream_output": stream_output,
+            }
+
+            self._write_report(
+                mode=mode_label,
+                source_path=source_audio_path,
+                target_path=target_audio_path,
+                sample_rate=self.sr,
+                settings=settings,
+                output_path=report_output_path,
+                stream_output=stream_output,
+            )
+
+            report_written = True
         
         with torch.autocast(device_type=device.type, dtype=dtype):
             # Compute content features
@@ -631,8 +709,12 @@ class VoiceConversionWrapper(torch.nn.Module):
                     last_progress = progress
 
                 if stream_output and mp3_bytes is not None:
+                    if full_audio is not None:
+                        log_report_once()
                     yield mp3_bytes, full_audio
                 if should_break:
+                    if not stream_output:
+                        log_report_once()
                     break
         else:
             cond, _ = self.cfm_length_regulator(source_content_indices, ylens=torch.LongTensor([source_mel_len]).to(device))
@@ -675,8 +757,12 @@ class VoiceConversionWrapper(torch.nn.Module):
                     last_progress = progress
                 
                 if stream_output and mp3_bytes is not None:
+                    if full_audio is not None:
+                        log_report_once()
                     yield mp3_bytes, full_audio
                 if should_break:
+                    if not stream_output:
+                        log_report_once()
                     break
 
         # Final progress mark
