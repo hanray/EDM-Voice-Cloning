@@ -19,13 +19,21 @@ def normalize_audio(
     target_db: float = -20.0,
     peak_limit: float = 0.95,
 ) -> np.ndarray:
-    """RMS-normalize to target_db with a hard peak clip."""
+    """RMS-normalize toward target_db, clip-safe.
+
+    If the RMS gain would push the peak past peak_limit, the gain is reduced
+    so the peak lands exactly at peak_limit — never hard-clipped. Distortion
+    belongs in the DAW, on purpose, not here by accident.
+    """
     audio = audio.astype(np.float32)
     rms = np.sqrt(np.mean(audio**2))
-    target_rms = 10 ** (target_db / 20)
-    if rms > 0:
-        audio = audio * (target_rms / rms)
-    return np.clip(audio, -peak_limit, peak_limit)
+    if rms <= 0:
+        return audio
+    gain = (10 ** (target_db / 20)) / rms
+    peak = float(np.abs(audio).max())
+    if peak * gain > peak_limit:
+        gain = peak_limit / peak
+    return audio * gain
 
 
 def save_audio(audio: np.ndarray, path: str, sample_rate: int) -> None:

@@ -51,8 +51,8 @@ Pipeline: `text → edge-TTS → [cadence: WORLD f0 rewrite] → [tempo stretch]
 | `grid_strength` | `1.0` | 0..1 quantize amount |
 | `fx_preset` | `none` | see `GET /fx/presets` |
 | `fx_chain` | — | JSON chain, overrides preset |
-| `trim_output` | `true` | voicebox output hygiene |
-| `normalize_output` | `true` | RMS −16 dB, peak 0.95 |
+| `trim_output` | `true` | voicebox output hygiene (error removal only) |
+| `normalize_output` | `false` | off by default — output is a dry stem for the DAW; when enabled: RMS −16 dB, clip-safe |
 
 V1 note: the UI's Model Mode selector now genuinely wires to the backend —
 "Singing (44 kHz)" sends `f0_condition=true`. Use it with any cadence mode.

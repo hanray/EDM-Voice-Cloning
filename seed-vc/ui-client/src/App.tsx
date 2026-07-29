@@ -84,7 +84,9 @@ const defaultMusicality: MusicalityParams = {
   grid_strength: 1.0,
   fx_preset: 'none',
   trim_output: true,
-  normalize_output: true,
+  // Dry by default: level and polish belong in the DAW. Enable only if you
+  // want a quick preview-loudness bump.
+  normalize_output: false,
 };
 
 const FX_PRESETS = [

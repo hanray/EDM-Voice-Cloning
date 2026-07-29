@@ -448,7 +448,7 @@ async def convert_v1(
     fx_preset: str = Form("none"),
     fx_chain: str = Form(""),
     trim_output: bool = Form(True),
-    normalize_output: bool = Form(True),
+    normalize_output: bool = Form(False),
 ):
     source_path = _write_upload_to_temp(source_audio)
     try:
@@ -508,7 +508,7 @@ async def convert_v1_text(
     fx_preset: str = Form("none"),
     fx_chain: str = Form(""),
     trim_output: bool = Form(True),
-    normalize_output: bool = Form(True),
+    normalize_output: bool = Form(False),
 ):
     pre_target_path = None
     try:
@@ -587,7 +587,7 @@ async def convert_v2(
     fx_preset: str = Form("none"),
     fx_chain: str = Form(""),
     trim_output: bool = Form(True),
-    normalize_output: bool = Form(True),
+    normalize_output: bool = Form(False),
 ):
     source_path = _write_upload_to_temp(source_audio)
     try:
@@ -653,7 +653,7 @@ async def convert_v2_text(
     fx_preset: str = Form("none"),
     fx_chain: str = Form(""),
     trim_output: bool = Form(True),
-    normalize_output: bool = Form(True),
+    normalize_output: bool = Form(False),
 ):
     pre_target_path = None
     try:
