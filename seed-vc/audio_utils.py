@@ -203,4 +203,5 @@ def validate_and_load_reference_audio(
 
         return True, None, audio, sr
     except Exception as e:
-        return False, f"Error validating reference audio: {e}", None, None
+        detail = str(e) or type(e).__name__
+        return False, f"Error validating reference audio: {detail}", None, None

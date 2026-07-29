@@ -19,6 +19,7 @@ import soundfile as sf
 
 from seed_vc_wrapper import SeedVCWrapper
 import audio_utils
+import chatterbox_provider
 import fx_chain
 import job_status
 import vocal_cadence
@@ -40,11 +41,41 @@ dtype = torch.float16
 app = FastAPI(title="Seed-VC API", version="0.2")
 
 
-async def _generate_tts(text: str, voice: str = "en-US-GuyNeural") -> str:
-    """Generate speech from text using edge-tts and return a temp file path."""
+async def _generate_tts(
+    text: str,
+    voice: str = "en-US-GuyNeural",
+    engine: str = "edge",
+    prompt_path: Optional[str] = None,
+) -> str:
+    """Generate speech from text and return a temp WAV path.
+
+    engine="edge" uses edge-tts (cloud, fast, flat delivery).
+    engine="chatterbox" uses the local Chatterbox model, cloning the voice
+    in prompt_path (we pass the conversion reference) — expressive input
+    means Seed-VC starts much closer to the target.
+    """
     if not text or text.strip() == "":
         raise ValueError("Text is required for TTS")
     job_status.set_stage("tts")
+
+    if engine == "chatterbox":
+        def _run():
+            job_status.adjust_waiting(+1)
+            with job_status.gpu_lock:
+                job_status.adjust_waiting(-1)
+                return chatterbox_provider.generate(
+                    text, device=device.type, voice_prompt_path=prompt_path
+                )
+
+        try:
+            audio, sr = await asyncio.to_thread(_run)
+        except RuntimeError as e:
+            raise ValueError(str(e))
+        fd, path = tempfile.mkstemp(suffix=".wav")
+        os.close(fd)
+        audio_utils.save_audio(audio, path, sr)
+        return path
+
     communicate = edge_tts.Communicate(text, voice or "en-US-GuyNeural")
     fd, path = tempfile.mkstemp(suffix=".mp3")
     os.close(fd)
@@ -352,8 +383,13 @@ async def _prepare_common(
     grid_quantize: bool,
     grid_subdivision: int,
     grid_strength: float,
+    pre_target_path: Optional[str] = None,
 ):
-    """Shared source-musicality + reference-preparation steps."""
+    """Shared source-musicality + reference-preparation steps.
+
+    pre_target_path: reference already prepared by the caller (the
+    chatterbox path preps it early to use as the TTS voice prompt).
+    """
     job_status.set_stage("preprocessing")
     midi_path = None
     if melody_midi is not None and (melody_midi.filename or ""):
@@ -381,6 +417,8 @@ async def _prepare_common(
     finally:
         _cleanup_paths(midi_path)
 
+    if pre_target_path is not None:
+        return source_path, pre_target_path
     target_path = await asyncio.to_thread(_prepare_reference, target_audio)
     return source_path, target_path
 
@@ -448,6 +486,7 @@ async def convert_v1_text(
     text: str = Form(...),
     target_audio: UploadFile = File(...),
     tts_voice: str = Form("en-US-GuyNeural"),
+    tts_engine: str = Form("edge"),
     diffusion_steps: int = Form(10),
     length_adjust: float = Form(1.0),
     inference_cfg_rate: float = Form(0.7),
@@ -471,14 +510,23 @@ async def convert_v1_text(
     trim_output: bool = Form(True),
     normalize_output: bool = Form(True),
 ):
+    pre_target_path = None
     try:
         effects = _resolve_fx(fx_preset, fx_chain, target_bpm)
-        source_path = await _generate_tts(text, tts_voice)
+        if tts_engine == "chatterbox":
+            # Prep the reference early so Chatterbox can clone it as the
+            # TTS voice — the source enters Seed-VC already near the target.
+            pre_target_path = await asyncio.to_thread(_prepare_reference, target_audio)
+        source_path = await _generate_tts(
+            text, tts_voice, engine=tts_engine, prompt_path=pre_target_path
+        )
     except ValueError as e:
         job_status.set_stage(None)
+        _cleanup_paths(pre_target_path)
         return JSONResponse(status_code=400, content={"error": str(e)})
     except Exception as e:
         job_status.set_stage(None)
+        _cleanup_paths(pre_target_path)
         return JSONResponse(status_code=400, content={"error": f"TTS failed: {e}"})
 
     try:
@@ -486,10 +534,11 @@ async def convert_v1_text(
             target_audio, source_path, cadence_mode, music_key, retune_ms,
             vibrato_cents, drift_cents, octave_shift, melody_midi,
             target_bpm, bpm_stretch, grid_quantize, grid_subdivision, grid_strength,
+            pre_target_path=pre_target_path,
         )
     except ValueError as e:
         job_status.set_stage(None)
-        _cleanup_paths(source_path)
+        _cleanup_paths(source_path, pre_target_path)
         return JSONResponse(status_code=400, content={"error": str(e)})
 
     chunk_gen = _run_v1(
@@ -579,6 +628,7 @@ async def convert_v2_text(
     text: str = Form(...),
     target_audio: UploadFile = File(...),
     tts_voice: str = Form("en-US-GuyNeural"),
+    tts_engine: str = Form("edge"),
     diffusion_steps: int = Form(30),
     length_adjust: float = Form(1.0),
     intelligibility_cfg_rate: float = Form(0.7, alias="intelligebility_cfg_rate"),
@@ -605,14 +655,23 @@ async def convert_v2_text(
     trim_output: bool = Form(True),
     normalize_output: bool = Form(True),
 ):
+    pre_target_path = None
     try:
         effects = _resolve_fx(fx_preset, fx_chain, target_bpm)
-        source_path = await _generate_tts(text, tts_voice)
+        if tts_engine == "chatterbox":
+            # Prep the reference early so Chatterbox can clone it as the
+            # TTS voice — the source enters Seed-VC already near the target.
+            pre_target_path = await asyncio.to_thread(_prepare_reference, target_audio)
+        source_path = await _generate_tts(
+            text, tts_voice, engine=tts_engine, prompt_path=pre_target_path
+        )
     except ValueError as e:
         job_status.set_stage(None)
+        _cleanup_paths(pre_target_path)
         return JSONResponse(status_code=400, content={"error": str(e)})
     except Exception as e:
         job_status.set_stage(None)
+        _cleanup_paths(pre_target_path)
         return JSONResponse(status_code=400, content={"error": f"TTS failed: {e}"})
 
     try:
@@ -620,10 +679,11 @@ async def convert_v2_text(
             target_audio, source_path, cadence_mode, music_key, retune_ms,
             vibrato_cents, drift_cents, octave_shift, melody_midi,
             target_bpm, bpm_stretch, grid_quantize, grid_subdivision, grid_strength,
+            pre_target_path=pre_target_path,
         )
     except ValueError as e:
         job_status.set_stage(None)
-        _cleanup_paths(source_path)
+        _cleanup_paths(source_path, pre_target_path)
         return JSONResponse(status_code=400, content={"error": str(e)})
 
     chunk_gen = _run_v2(

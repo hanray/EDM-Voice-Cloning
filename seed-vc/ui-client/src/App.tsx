@@ -13,6 +13,7 @@ interface ConversionParamsV1 {
   pitch_shift: number;
   model_mode: 'voice' | 'singing';
   tts_voice?: string;
+  tts_engine: 'edge' | 'chatterbox';
 }
 
 interface ConversionParamsV2 {
@@ -53,6 +54,7 @@ const defaultV1: ConversionParamsV1 = {
   pitch_shift: 0,
   model_mode: 'singing',
   tts_voice: 'en-US-GuyNeural',
+  tts_engine: 'edge',
 };
 
 const defaultV2: ConversionParamsV2 = {
@@ -178,6 +180,7 @@ async function convertV1(
     endpoint = '/api/v1/convert_text';
     form.append('text', inputText);
     form.append('tts_voice', params.tts_voice || 'en-US-GuyNeural');
+    form.append('tts_engine', params.tts_engine);
   } else {
     if (!source) throw new Error('Source audio missing');
     form.append('source_audio', source);
@@ -200,6 +203,7 @@ async function convertV2(
   inputMode: InputMode,
   inputText: string,
   ttsVoice: string,
+  ttsEngine: 'edge' | 'chatterbox',
   onStatus?: (s: string) => void,
 ): Promise<string> {
   const form = new FormData();
@@ -220,6 +224,7 @@ async function convertV2(
     endpoint = '/api/v2/convert_text';
     form.append('text', inputText);
     form.append('tts_voice', ttsVoice || 'en-US-GuyNeural');
+    form.append('tts_engine', ttsEngine);
   } else {
     if (!source) throw new Error('Source audio missing');
     form.append('source_audio', source);
@@ -322,7 +327,7 @@ export default function App() {
     setLoading(true);
     try {
       const url = engine === 'v2'
-        ? await convertV2(source?.file || null, reference.file, paramsV2, musicality, melodyMidi, inputMode, inputText, paramsV1.tts_voice || 'en-US-GuyNeural', setStatus)
+        ? await convertV2(source?.file || null, reference.file, paramsV2, musicality, melodyMidi, inputMode, inputText, paramsV1.tts_voice || 'en-US-GuyNeural', paramsV1.tts_engine, setStatus)
         : await convertV1(source?.file || null, reference.file, paramsV1, musicality, melodyMidi, inputMode, inputText, setStatus);
       setOutputUrl(url);
       setStatus('Completed');
@@ -399,12 +404,24 @@ export default function App() {
                   style={{ width: '100%' }}
                 />
                 <div className="control-row" style={{ gap: '0.5rem', alignItems: 'center' }}>
+                  <label className="label">TTS Engine</label>
+                  <select
+                    className="select"
+                    value={paramsV1.tts_engine}
+                    onChange={(e) => setParamsV1({ ...paramsV1, tts_engine: e.target.value as 'edge' | 'chatterbox' })}
+                    disabled={loading}
+                  >
+                    <option value="edge">Edge (fast, flat)</option>
+                    <option value="chatterbox">Chatterbox (local, clones reference)</option>
+                  </select>
+                </div>
+                <div className="control-row" style={{ gap: '0.5rem', alignItems: 'center', opacity: paramsV1.tts_engine === 'chatterbox' ? 0.5 : 1 }}>
                   <label className="label">TTS Voice</label>
                   <select
                     className="select"
                     value={paramsV1.tts_voice}
                     onChange={(e) => setParamsV1({ ...paramsV1, tts_voice: e.target.value })}
-                    disabled={loading}
+                    disabled={loading || paramsV1.tts_engine === 'chatterbox'}
                   >
                     <option value="en-US-GuyNeural">English US Male</option>
                     <option value="en-US-AriaNeural">English US Female</option>
