@@ -31,3 +31,4 @@ edge-tts
 pyworld
 pedalboard
 mido
+noisereduce

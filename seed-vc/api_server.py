@@ -243,6 +243,8 @@ def _postprocess_full(
     effects: Optional[list],
     trim_output: bool,
     normalize_output: bool,
+    denoise: bool = False,
+    denoise_strength: float = 0.6,
 ) -> bytes:
     """Voicebox-style output hygiene + FX, returning final WAV bytes."""
     job_status.set_stage("postprocessing")
@@ -254,6 +256,9 @@ def _postprocess_full(
         if audio_utils.has_tts_runaway(audio, sr):
             print("[post] runaway tail detected; trimming at internal silence gap")
         audio = audio_utils.trim_tts_output(audio, sr)
+    if denoise:
+        # after trim (less audio to process), before FX (don't gate reverb tails)
+        audio = audio_utils.denoise_audio(audio, sr, strength=denoise_strength)
     if effects:
         audio = fx_chain.apply_effects(audio, sr, effects)
     if normalize_output:
@@ -296,7 +301,8 @@ def _read_bytes(path: str) -> bytes:
         return f.read()
 
 
-async def _finish_and_save(chunk_gen, stems: Optional[dict], effects, trim_output, normalize_output):
+async def _finish_and_save(chunk_gen, stems: Optional[dict], effects, trim_output,
+                           normalize_output, denoise=False, denoise_strength=0.6):
     """Buffer the conversion, post-process, auto-save to OUTPUT_ROOT, and
     return the final WAV with the save location in an X-Saved-To header.
     When stems is a dict, the intermediate stages land in the same folder —
@@ -309,7 +315,10 @@ async def _finish_and_save(chunk_gen, stems: Optional[dict], effects, trim_outpu
             sf.write(raw, audio, sr, subtype="PCM_16", format="WAV")
             stems["03_converted_raw.wav"] = raw.getvalue()
         try:
-            final = _postprocess_full(audio, sr, effects, trim_output, normalize_output)
+            final = _postprocess_full(
+                audio, sr, effects, trim_output, normalize_output,
+                denoise=denoise, denoise_strength=denoise_strength,
+            )
         finally:
             job_status.set_stage(None)
         saved_dir = _save_session_outputs(stems, final)
@@ -451,6 +460,8 @@ async def convert_v1(
     fx_chain: str = Form(""),
     trim_output: bool = Form(True),
     normalize_output: bool = Form(False),
+    denoise: bool = Form(True),
+    denoise_strength: float = Form(0.6),
     debug_stems: bool = Form(False),
 ):
     stems: dict = {}
@@ -483,7 +494,8 @@ async def convert_v1(
     )
 
     return await _finish_and_save(
-        chunk_gen, stems if debug_stems else None, effects, trim_output, normalize_output
+        chunk_gen, stems if debug_stems else None, effects, trim_output,
+        normalize_output, denoise=denoise, denoise_strength=denoise_strength,
     )
 
 
@@ -515,6 +527,8 @@ async def convert_v1_text(
     fx_chain: str = Form(""),
     trim_output: bool = Form(True),
     normalize_output: bool = Form(False),
+    denoise: bool = Form(True),
+    denoise_strength: float = Form(0.6),
     debug_stems: bool = Form(False),
     smooth_punctuation: bool = Form(True),
 ):
@@ -570,7 +584,8 @@ async def convert_v1_text(
     )
 
     return await _finish_and_save(
-        chunk_gen, stems if debug_stems else None, effects, trim_output, normalize_output
+        chunk_gen, stems if debug_stems else None, effects, trim_output,
+        normalize_output, denoise=denoise, denoise_strength=denoise_strength,
     )
 
 

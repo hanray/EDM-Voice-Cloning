@@ -32,11 +32,14 @@ interface MusicalityParams {
   fx_preset: string;
   trim_output: boolean;
   normalize_output: boolean;
+  denoise: boolean;
+  denoise_strength: number;
   debug_stems: boolean;
 }
 
 const defaultVoice: VoiceParams = {
-  diffusion_steps: 10,
+  // 30 steps: slower than the old 10 but markedly fewer conversion artifacts
+  diffusion_steps: 30,
   length_adjust: 1.0,
   inference_cfg_rate: 0.7,
   auto_f0_adjust: false,
@@ -65,6 +68,8 @@ const defaultMusicality: MusicalityParams = {
   fx_preset: 'none',
   trim_output: true,
   normalize_output: false, // dry stems — level decisions belong in the DAW
+  denoise: true, // spectral cleanup of Seed-VC artifacts; strength tunable
+  denoise_strength: 0.6,
   debug_stems: true, // auto-save all pipeline stages while dialing in quality
 };
 
@@ -176,6 +181,8 @@ async function convert(
   form.append('fx_preset', m.fx_preset);
   form.append('trim_output', String(m.trim_output));
   form.append('normalize_output', String(m.normalize_output));
+  form.append('denoise', String(m.denoise));
+  form.append('denoise_strength', String(m.denoise_strength));
   form.append('debug_stems', String(m.debug_stems));
   if (m.cadence_mode === 'melody' && midi) form.append('melody_midi', midi);
 
@@ -584,6 +591,15 @@ export default function App() {
             <Switch checked={m.normalize_output} onChange={(v) => setM({ normalize_output: v })} />
             <span className="hint">Preview loudness, clip-safe. Off = untouched stem.</span>
           </div>
+          <div className="control-row">
+            <label className="label">Denoise</label>
+            <Switch checked={m.denoise} onChange={(v) => setM({ denoise: v })} />
+            <span className="hint">Spectral cleanup of conversion artifacts/hiss.</span>
+          </div>
+          {m.denoise && (
+            <SliderRow label="Strength" value={m.denoise_strength} min={0} max={1} step={0.05}
+              onChange={(v) => setM({ denoise_strength: v })} />
+          )}
           <div className="control-row">
             <label className="label">Debug stems</label>
             <Switch checked={m.debug_stems} onChange={(v) => setM({ debug_stems: v })} />

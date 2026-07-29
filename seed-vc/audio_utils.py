@@ -151,6 +151,32 @@ def trim_tts_output(
     return trimmed
 
 
+def denoise_audio(
+    audio: np.ndarray,
+    sample_rate: int,
+    strength: float = 0.6,
+) -> np.ndarray:
+    """Spectral noise reduction for synthesis artifacts (Seed-VC hiss/grit).
+
+    Non-stationary spectral gating via noisereduce. strength is
+    prop_decrease in [0, 1] — how much of the detected noise to remove.
+    Higher values clean more but start dulling consonants; ~0.5–0.75 is the
+    sweet spot for converted vocals.
+    """
+    import noisereduce as nr
+
+    strength = float(np.clip(strength, 0.0, 1.0))
+    if strength <= 0 or audio.size == 0:
+        return audio
+    out = nr.reduce_noise(
+        y=audio.astype(np.float32),
+        sr=sample_rate,
+        stationary=False,
+        prop_decrease=strength,
+    )
+    return out.astype(np.float32)
+
+
 def preprocess_reference_audio(
     audio: np.ndarray,
     sample_rate: int,
