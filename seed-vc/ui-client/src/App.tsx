@@ -14,6 +14,9 @@ interface VoiceParams {
   tts_voice: string;
   edge_fallback: boolean;
   smooth_punctuation: boolean;
+  tts_exaggeration: number;
+  tts_temperature: number;
+  ace_vocal: boolean;
 }
 
 interface MusicalityParams {
@@ -48,6 +51,9 @@ const defaultVoice: VoiceParams = {
   tts_voice: 'en-US-GuyNeural',
   edge_fallback: false,
   smooth_punctuation: true,
+  tts_exaggeration: 0.5,
+  tts_temperature: 0.8,
+  ace_vocal: false,
 };
 
 const defaultMusicality: MusicalityParams = {
@@ -193,6 +199,9 @@ async function convert(
     form.append('tts_engine', voice.edge_fallback ? 'edge' : 'chatterbox');
     form.append('tts_voice', voice.tts_voice);
     form.append('smooth_punctuation', String(voice.smooth_punctuation));
+    form.append('tts_exaggeration', String(voice.tts_exaggeration));
+    form.append('tts_temperature', String(voice.tts_temperature));
+    form.append('ace_vocal', String(voice.ace_vocal));
   } else {
     if (!source) throw new Error('Source audio missing');
     form.append('source_audio', source);
@@ -526,6 +535,20 @@ export default function App() {
               <label className="label">Smooth punct.</label>
               <Switch checked={voice.smooth_punctuation} onChange={(v) => setV({ smooth_punctuation: v })} />
               <span className="hint">Strips commas before TTS — cleaner enunciation.</span>
+            </div>
+            {!voice.edge_fallback && (
+              <>
+                <SliderRow label="Expressiveness" value={voice.tts_exaggeration} min={0.25} max={1} step={0.05}
+                  onChange={(v) => setV({ tts_exaggeration: v })} />
+                <SliderRow label="Temperature" value={voice.tts_temperature} min={0.4} max={1.2} step={0.05}
+                  onChange={(v) => setV({ tts_temperature: v })} />
+                <p className="hint">Higher = livelier, less robotic delivery (and less predictable). Try 0.7 / 1.0 against the robotic edge.</p>
+              </>
+            )}
+            <div className="control-row">
+              <label className="label">ACE vocal</label>
+              <Switch checked={voice.ace_vocal} onChange={(v) => setV({ ace_vocal: v })} />
+              <span className="hint">Also generate a natively-SUNG a cappella of the lyrics (ACE-Step) into the output folder as 05_ace_vocal. Needs start_ace.bat running.</span>
             </div>
             {voice.edge_fallback ? (
               <div className="control-row">

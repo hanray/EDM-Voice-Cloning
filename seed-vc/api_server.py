@@ -15,7 +15,10 @@ import librosa
 import numpy as np
 import soundfile as sf
 
+import threading
+
 from seed_vc_wrapper import SeedVCWrapper
+import ace_provider
 import audio_utils
 import chatterbox_provider
 import fx_chain
@@ -43,6 +46,8 @@ async def _generate_tts(
     voice: str = "en-US-GuyNeural",
     engine: str = "edge",
     prompt_path: Optional[str] = None,
+    exaggeration: float = 0.5,
+    temperature: float = 0.8,
 ) -> str:
     """Generate speech from text and return a temp WAV path.
 
@@ -61,7 +66,11 @@ async def _generate_tts(
             with job_status.gpu_lock:
                 job_status.adjust_waiting(-1)
                 return chatterbox_provider.generate(
-                    text, device=device.type, voice_prompt_path=prompt_path
+                    text,
+                    device=device.type,
+                    voice_prompt_path=prompt_path,
+                    exaggeration=exaggeration,
+                    temperature=temperature,
                 )
 
         try:
@@ -287,6 +296,24 @@ def _save_session_outputs(stems: Optional[dict], final_wav: bytes) -> str:
     with open(os.path.join(session_dir, "final.wav"), "wb") as f:
         f.write(final_wav)
     return session_dir
+
+
+def _spawn_ace_vocal(saved_dir: str, lyrics: str, bpm: Optional[float], key: str) -> None:
+    """Fire-and-forget: generate an ACE-Step a-cappella of the same lyrics
+    and drop it into the session's output folder as 05_ace_vocal.*"""
+    def _run():
+        audio, err = ace_provider.generate_vocal(lyrics, bpm=bpm, key=key)
+        if err:
+            with open(os.path.join(saved_dir, "05_ace_vocal_FAILED.txt"), "w") as f:
+                f.write(err)
+            print(f"[ace] {err}")
+            return
+        ext = "wav" if audio[:4] == b"RIFF" else ("flac" if audio[:4] == b"fLaC" else "mp3")
+        with open(os.path.join(saved_dir, f"05_ace_vocal.{ext}"), "wb") as f:
+            f.write(audio)
+        print(f"[ace] saved 05_ace_vocal.{ext} to {saved_dir}")
+
+    threading.Thread(target=_run, daemon=True).start()
 
 
 def _normalize_lyrics(text: str) -> str:
@@ -531,6 +558,9 @@ async def convert_v1_text(
     denoise_strength: float = Form(0.6),
     debug_stems: bool = Form(False),
     smooth_punctuation: bool = Form(True),
+    tts_exaggeration: float = Form(0.5),
+    tts_temperature: float = Form(0.8),
+    ace_vocal: bool = Form(False),
 ):
     stems: dict = {}
     pre_target_path = None
@@ -543,7 +573,8 @@ async def convert_v1_text(
             # TTS voice — the source enters Seed-VC already near the target.
             pre_target_path = await asyncio.to_thread(_prepare_reference, target_audio)
         source_path = await _generate_tts(
-            text, tts_voice, engine=tts_engine, prompt_path=pre_target_path
+            text, tts_voice, engine=tts_engine, prompt_path=pre_target_path,
+            exaggeration=tts_exaggeration, temperature=tts_temperature,
         )
     except ValueError as e:
         job_status.set_stage(None)
@@ -583,10 +614,21 @@ async def convert_v1_text(
         pitch_shift=pitch_shift,
     )
 
-    return await _finish_and_save(
+    response = await _finish_and_save(
         chunk_gen, stems if debug_stems else None, effects, trim_output,
         normalize_output, denoise=denoise, denoise_strength=denoise_strength,
     )
+
+    if ace_vocal:
+        saved_dir = response.headers.get("X-Saved-To")
+        if saved_dir:
+            if ace_provider.is_up():
+                _spawn_ace_vocal(saved_dir, text, target_bpm, music_key)
+                response.headers["X-Ace-Status"] = "generating"
+            else:
+                response.headers["X-Ace-Status"] = "offline"
+
+    return response
 
 
 if __name__ == "__main__":
