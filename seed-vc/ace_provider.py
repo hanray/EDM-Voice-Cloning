@@ -86,7 +86,10 @@ def generate_vocal(
         payload["key_scale"] = " ".join(p.capitalize() for p in parts[:2])
 
     try:
-        sub = _post("/release_task", payload)
+        # First-ever task blocks while ACE downloads/loads checkpoints
+        # (~10 GB on a fresh install) — give the submit call room to survive
+        # that instead of timing out at the HTTP layer.
+        sub = _post("/release_task", payload, timeout=900.0)
     except Exception as e:
         return None, f"ACE submit failed: {e}"
 
@@ -121,12 +124,14 @@ def generate_vocal(
                 result = None
         if status == 2:
             return None, f"ACE generation failed: {entry.get('error') or entry}"
-        if status == 1 or (result and isinstance(result, list) and result):
-            file_url = None
-            if isinstance(result, list) and result:
-                file_url = result[0].get("file")
-            if not file_url:
-                return None, f"ACE finished but returned no file: {entry}"
+
+        # Result items exist from the moment the task starts, with empty
+        # file + inner status 0 while still rendering — only a non-empty
+        # file on a finished item counts as done.
+        item = result[0] if isinstance(result, list) and result else None
+        file_url = (item or {}).get("file") or ""
+        item_status = (item or {}).get("status")
+        if file_url and item_status in (1, None):
             if file_url.startswith("/"):
                 file_url = ACE_BASE + file_url
             try:
@@ -134,5 +139,9 @@ def generate_vocal(
                     return r.read(), None
             except Exception as e:
                 return None, f"ACE audio download failed: {e}"
+        if item is not None and item_status == 2:
+            return None, f"ACE generation failed: {item}"
+        if status == 1 and not file_url:
+            return None, f"ACE finished but returned no file: {entry}"
 
     return None, "ACE generation timed out"
